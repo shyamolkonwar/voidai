@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus, MessageSquare, Trash2, Menu, X } from 'lucide-react';
 import { Chat } from '@/types/chat';
 
@@ -8,18 +9,43 @@ interface SidebarProps {
   chats: Chat[];
   currentChatId: string | null;
   onChatSelect: (chatId: string) => void;
-  onNewChat: () => void;
+  onNewChat?: () => void;
   onDeleteChat: (chatId: string) => void;
+  isHomePage?: boolean;
 }
 
-export function Sidebar({ 
-  chats, 
-  currentChatId, 
-  onChatSelect, 
-  onNewChat, 
-  onDeleteChat 
+export function Sidebar({
+  chats,
+  currentChatId,
+  onChatSelect,
+  onNewChat,
+  onDeleteChat,
+  isHomePage = false
 }: SidebarProps) {
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
+  
+  // Check if we're on a mobile device and handle responsive behavior
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      // On desktop, sidebar should always be open
+      if (!mobile) {
+        setIsOpen(true);
+      }
+    };
+    
+    // Check initial screen size
+    checkMobile();
+    
+    // Add resize listener
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const toggleSidebar = () => setIsOpen(!isOpen);
 
@@ -28,10 +54,6 @@ export function Sidebar({
     setIsOpen(false); // Close sidebar on mobile after selection
   };
 
-  const handleNewChat = () => {
-    onNewChat();
-    setIsOpen(false); // Close sidebar on mobile after creating new chat
-  };
 
   return (
     <>
@@ -65,8 +87,13 @@ export function Sidebar({
             </div>
             
             <button
-              onClick={handleNewChat}
-              className="w-full flex items-center gap-3 px-3 py-2 text-sm text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors"
+              onClick={isHomePage ? undefined : () => router.push('/')}
+              disabled={isHomePage}
+              className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors ${
+                isHomePage
+                  ? 'text-gray-500 bg-gray-900 cursor-not-allowed'
+                  : 'text-white bg-gray-800 hover:bg-gray-700 cursor-pointer'
+              }`}
             >
               <Plus className="w-4 h-4" />
               New Chat

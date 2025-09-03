@@ -17,12 +17,23 @@ export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterf
   const inputRef = useRef<HTMLInputElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
+    }
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Only scroll to bottom if it's a new message or loading state
+    if (messages.length > 0 || isLoading) {
+      const timer = setTimeout(() => {
+        scrollToBottom();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [messages, isLoading]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -61,22 +72,22 @@ export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterf
                 Welcome to VOID
               </h3>
               <p className="text-gray-400 text-sm max-w-sm">
-                Ask questions about ocean data and receive visual insights. 
+                Ask questions about ocean data and receive visual insights.
                 Try asking about temperature, salinity, or marine observations.
               </p>
             </div>
           </div>
         ) : (
-          <div>
+          <div className="min-h-full">
             {messages.map((message) => (
               <ChatMessage key={message.id} message={message} />
             ))}
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} className="h-4" />
           </div>
         )}
         
         {isLoading && (
-          <div className="p-6 bg-black">
+          <div className="p-6 bg-black sticky bottom-0">
             <div className="flex gap-3">
               <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -103,9 +114,13 @@ export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterf
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="px-4 py-3 bg-white text-black rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors font-medium"
+            className="px-4 py-3 bg-white text-black rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-1 focus:ring-gray-600 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors font-medium flex items-center justify-center min-w-[44px]"
           >
-            <Send className="w-4 h-4" />
+            {isLoading ? (
+              <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
           </button>
         </form>
       </div>

@@ -11,7 +11,8 @@ Author: FloatChat Backend System
 
 import logging
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+from dotenv import load_dotenv
 import time
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -24,6 +25,7 @@ import uvicorn
 
 from src.rag_core import FloatChatRAGCore, QueryResult
 from src.db_manager import FloatChatDBManager, QueryExecutionResult
+from src.chat_history_manager import ChatHistoryManager
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +33,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Load environment variables first
+load_dotenv()
 
 # Configuration from environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://username:password@localhost:5432/floatchat")
@@ -42,6 +47,7 @@ MAX_QUERY_TIME = int(os.getenv("MAX_QUERY_TIME", "30"))
 # Global instances (will be initialized in lifespan)
 rag_core: Optional[FloatChatRAGCore] = None
 db_manager: Optional[FloatChatDBManager] = None
+chat_history_manager: Optional[ChatHistoryManager] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,7 +55,7 @@ async def lifespan(app: FastAPI):
     Application lifespan manager for startup and shutdown events.
     """
     # Startup
-    global rag_core, db_manager
+    global rag_core, db_manager, chat_history_manager
 
     logger.info("Starting FloatChat API server...")
 
@@ -62,6 +68,11 @@ async def lifespan(app: FastAPI):
         if not db_manager.test_connection():
             raise Exception("Failed to connect to PostgreSQL database")
         logger.info("Database connection established")
+
+        # Initialize chat history manager
+        logger.info("Initializing chat history manager...")
+        chat_history_manager = ChatHistoryManager(db_manager)
+        logger.info("Chat history manager initialized")
 
         # Initialize RAG core
         logger.info("Initializing RAG core...")
@@ -110,6 +121,7 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     """Request model for natural language queries"""
     query: str = Field(..., description="Natural language query", min_length=1, max_length=1000)
+    session_id: Optional[str] = Field(default=None, description="Chat session ID for context awareness")
     include_context: bool = Field(default=True, description="Include retrieved context in response")
     max_results: int = Field(default=100, description="Maximum number of result rows", ge=1, le=1000)
 
@@ -154,6 +166,81 @@ async def get_db_manager() -> FloatChatDBManager:
         )
     return db_manager
 
+async def get_chat_history_manager() -> ChatHistoryManager:
+    """Dependency for chat history manager instance"""
+    if chat_history_manager is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chat history manager not initialized"
+        )
+    return chat_history_manager
+
+# Session management endpoints
+class SessionCreateResponse(BaseModel):
+    """Response model for session creation"""
+    session_id: str = Field(..., description="New session UUID")
+    created_at: str = Field(..., description="Session creation timestamp")
+
+class SessionHistoryResponse(BaseModel):
+    """Response model for session history"""
+    session_id: str = Field(..., description="Session UUID")
+    messages: List[Dict[str, Any]] = Field(..., description="Chat messages")
+    message_count: int = Field(..., description="Number of messages in session")
+
+class SessionListResponse(BaseModel):
+    """Response model for session list"""
+    sessions: List[Dict[str, Any]] = Field(..., description="List of chat sessions")
+
+@app.post("/api/v1/sessions", response_model=SessionCreateResponse)
+async def create_session(
+    chat_manager: ChatHistoryManager = Depends(get_chat_history_manager)
+):
+    """
+    Create a new chat session.
+    
+    Returns:
+        New session ID that can be used for subsequent queries
+    """
+    session_id = chat_manager.create_session()
+    return SessionCreateResponse(
+        session_id=session_id,
+        created_at=datetime.now().isoformat()
+    )
+
+@app.get("/api/v1/sessions", response_model=SessionListResponse)
+async def get_all_sessions(
+    chat_manager: ChatHistoryManager = Depends(get_chat_history_manager)
+):
+    """
+    Get all chat sessions.
+    
+    Returns:
+        List of all chat sessions with their metadata
+    """
+    sessions = chat_manager.get_all_sessions()
+    return SessionListResponse(sessions=sessions)
+
+@app.get("/api/v1/sessions/{session_id}/history", response_model=SessionHistoryResponse)
+async def get_session_history(
+    session_id: str,
+    chat_manager: ChatHistoryManager = Depends(get_chat_history_manager)
+):
+    """
+    Get chat history for a specific session.
+    
+    Args:
+        session_id: UUID of the chat session
+        
+    Returns:
+        Complete chat history for the session
+    """
+    messages = chat_manager.get_recent_history(session_id, limit=50)  # Get up to 50 messages
+    return SessionHistoryResponse(
+        session_id=session_id,
+        messages=messages,
+        message_count=len(messages)
+    )
+
 @app.get("/", response_model=Dict[str, str])
 async def root():
     """Root endpoint with basic API information"""
@@ -195,7 +282,8 @@ async def get_status(
 async def process_query_v1(
     request: QueryRequest,
     rag: FloatChatRAGCore = Depends(get_rag_core),
-    db: FloatChatDBManager = Depends(get_db_manager)
+    db: FloatChatDBManager = Depends(get_db_manager),
+    chat_manager: ChatHistoryManager = Depends(get_chat_history_manager)
 ):
     """
     Process a natural language query and return SQL results.
@@ -210,9 +298,16 @@ async def process_query_v1(
     try:
         logger.info(f"Processing query: {request.query}")
 
-        # Step 1: Generate SQL using RAG core
+        # Step 1: Handle session context
+        conversation_context = None
+        if request.session_id:
+            # Get conversation history for context
+            conversation_context = chat_manager.get_conversation_context(request.session_id)
+            logger.info(f"Using conversation context for session {request.session_id}")
+        
+        # Step 2: Generate SQL using RAG core with conversation context
         logger.info("Generating SQL using RAG core...")
-        rag_result: QueryResult = rag.process_query(request.query)
+        rag_result: QueryResult = rag.process_query(request.query, conversation_context)
 
         if not rag_result.sql_query:
             raise HTTPException(
@@ -230,6 +325,18 @@ async def process_query_v1(
         # Step 3: Limit results if necessary
         limited_data = db_result.data[:request.max_results] if db_result.data else []
         actual_row_count = len(limited_data)
+
+        # Step 4: Persist messages to chat history if session exists
+        if request.session_id:
+            # Persist user message
+            chat_manager.add_message(request.session_id, "user", request.query)
+            
+            # Persist assistant response
+            assistant_message = rag_result.reasoning if rag_result.reasoning else "Query processed successfully"
+            chat_manager.add_message(request.session_id, "assistant", assistant_message)
+            
+            # Clean up old messages to keep history manageable
+            chat_manager.cleanup_old_messages(request.session_id)
 
         # Step 4: Calculate total execution time
         total_execution_time = time.time() - start_time
@@ -292,7 +399,8 @@ async def process_query_v1(
 async def process_query(
     request: QueryRequest,
     rag: FloatChatRAGCore = Depends(get_rag_core),
-    db: FloatChatDBManager = Depends(get_db_manager)
+    db: FloatChatDBManager = Depends(get_db_manager),
+    chat_manager: ChatHistoryManager = Depends(get_chat_history_manager)
 ):
     """
     Process a natural language query and return results in frontend-compatible format.
@@ -304,9 +412,16 @@ async def process_query(
     try:
         logger.info(f"Processing frontend query: {request.query}")
 
-        # Step 1: Generate SQL using RAG core
+        # Step 1: Handle session context
+        conversation_context = None
+        if request.session_id:
+            # Get conversation history for context
+            conversation_context = chat_manager.get_conversation_context(request.session_id)
+            logger.info(f"Using conversation context for session {request.session_id}")
+        
+        # Step 2: Generate SQL using RAG core with conversation context
         logger.info("Generating SQL using RAG core...")
-        rag_result: QueryResult = rag.process_query(request.query)
+        rag_result: QueryResult = rag.process_query(request.query, conversation_context)
 
         if not rag_result.sql_query:
             raise HTTPException(
@@ -342,7 +457,19 @@ async def process_query(
                 response_type = "table"
                 summary_text = f"Showing {actual_row_count} data rows"
 
-        # Step 6: Prepare response for frontend
+        # Step 6: Persist messages to chat history if session exists
+        if request.session_id:
+            # Persist user message
+            chat_manager.add_message(request.session_id, "user", request.query)
+            
+            # Persist assistant response
+            assistant_message = summary_text if summary_text else "Query processed successfully"
+            chat_manager.add_message(request.session_id, "assistant", assistant_message)
+            
+            # Clean up old messages to keep history manageable
+            chat_manager.cleanup_old_messages(request.session_id)
+
+        # Step 7: Prepare response for frontend
         response_data = {
             "success": db_result.success,
             "data": limited_data,

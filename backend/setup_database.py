@@ -1,7 +1,7 @@
 
 import os
 import logging
-from sqlalchemy import create_engine, text, MetaData, Table, Column, String, Integer, Float, DateTime, ForeignKey
+from sqlalchemy import create_engine, text, MetaData, Table, Column, String, Integer, Float, DateTime, ForeignKey, Text, JSON
 from dotenv import load_dotenv
 
 # Configure logging
@@ -47,6 +47,16 @@ def create_schema(database_url: str):
               Column('salinity', Float),
               Column('depth', Float),
               Column('quality_flag', Integer)
+        )
+
+        # Define chat_history table for session-based conversations
+        Table('chat_history', metadata,
+              Column('session_id', String, primary_key=True),
+              Column('turn_index', Integer, primary_key=True),
+              Column('role', String),
+              Column('message', Text),
+              Column('created_at', DateTime),
+              Column('metadata', JSON)
         )
 
         with engine.connect() as connection:

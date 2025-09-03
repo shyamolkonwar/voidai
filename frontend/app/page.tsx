@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import { Sidebar } from '@/components/sidebar/Sidebar';
 import { useChatHistory } from '@/hooks/useChatHistory';
@@ -8,6 +9,7 @@ import { useChat } from '@/hooks/useChat';
 import { ChatMessage } from '@/types/chat';
 
 export default function Home() {
+  const router = useRouter();
   const {
     chats,
     currentChatId,
@@ -38,17 +40,22 @@ export default function Home() {
   }, [messages, currentChatId, updateChat]);
 
   const handleSendMessage = useCallback(async (query: string) => {
-    // Create new chat if none exists
-    let chatId = currentChatId;
-    if (!chatId) {
-      chatId = createNewChat();
+    let chatIdToUse = currentChatId;
+    
+    // If no current chat, create a new one automatically
+    if (!chatIdToUse) {
+      chatIdToUse = await createNewChat();
+      setCurrentChatId(chatIdToUse);
+      
+      // Navigate to the new chat session without page reload
+      router.push(`/chat/${chatIdToUse}`);
     }
     
-    const newMessages = await sendMessage(query);
-    if (newMessages && chatId) {
-      updateChat(chatId, newMessages);
+    const newMessages = await sendMessage(query, chatIdToUse!);
+    if (newMessages && chatIdToUse) {
+      updateChat(chatIdToUse, newMessages);
     }
-  }, [currentChatId, createNewChat, sendMessage, updateChat]);
+  }, [currentChatId, sendMessage, updateChat, createNewChat, setCurrentChatId, router]);
 
   const handleChatSelect = useCallback((chatId: string) => {
     setCurrentChatId(chatId);
@@ -58,9 +65,6 @@ export default function Home() {
     deleteChat(chatId);
   }, [deleteChat]);
 
-  const handleNewChat = useCallback(() => {
-    createNewChat();
-  }, [createNewChat]);
 
   return (
     <div className="h-full bg-black flex">
@@ -68,8 +72,8 @@ export default function Home() {
         chats={chats}
         currentChatId={currentChatId}
         onChatSelect={handleChatSelect}
-        onNewChat={handleNewChat}
         onDeleteChat={handleDeleteChat}
+        isHomePage={true}
       />
       <div className="flex-1">
         <ChatInterface

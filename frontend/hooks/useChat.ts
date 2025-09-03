@@ -8,7 +8,7 @@ export function useChat() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const sendMessage = useCallback(async (query: string) => {
+  const sendMessage = useCallback(async (query: string, sessionId?: string) => {
     if (!query.trim()) return;
 
     const userMessage: ChatMessage = {
@@ -23,19 +23,34 @@ export function useChat() {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:8000/api/v1/query', {
+      const requestBody: any = { query };
+      if (sessionId) {
+        requestBody.session_id = sessionId;
+      }
+
+      console.log('Sending query to backend:', requestBody);
+      const response = await fetch('http://127.0.0.1:8001/query', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify(requestBody),
       });
 
+      console.log('Backend response status:', response.status);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data: ApiResponse = await response.json();
+      const responseData = await response.json();
+      console.log('Backend response data structure:', JSON.stringify(responseData, null, 2));
+      
+      // Check if the response has the expected structure
+      const data: ApiResponse = {
+        type: responseData.type || 'text',
+        data: responseData.data || [],
+        summary: responseData.summary || responseData.reasoning || 'No summary available'
+      };
 
       const assistantMessage: ChatMessage = {
         id: `assistant-${Date.now()}`,

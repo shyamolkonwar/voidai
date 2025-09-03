@@ -2,6 +2,9 @@
 
 import { ChatMessage as ChatMessageType } from '@/types/chat';
 import { User, Bot } from 'lucide-react';
+import { MapVisualization } from '@/components/visualizations/MapVisualization';
+import { TableVisualization } from '@/components/visualizations/TableVisualization';
+import { TextVisualization } from '@/components/visualizations/TextVisualization';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -21,9 +24,25 @@ export function ChatMessage({ message }: ChatMessageProps) {
       </div>
       
       <div className="flex-1 min-w-0">
-        <div className="text-white leading-relaxed">
+        <div className="text-white leading-relaxed mb-4">
           {message.content}
         </div>
+        
+        {message.role === 'assistant' && message.response && (
+          <div className="mt-4">
+            {message.response.type === 'map' && (
+              <MapVisualization data={message.response.data} summary={message.response.summary} />
+            )}
+            
+            {message.response.type === 'table' && (
+              <TableVisualization data={message.response.data} summary={message.response.summary} />
+            )}
+            
+            {message.response.type === 'text' && (
+              <TextVisualization summary={message.response.summary} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

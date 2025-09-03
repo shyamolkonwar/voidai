@@ -6,52 +6,85 @@ import { Chat, ChatMessage } from '@/types/chat';
 export function useChatHistory() {
   const [chats, setChats] = useState<Chat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Load chats from localStorage on mount
+  // Load chats from backend on mount
   useEffect(() => {
-    const savedChats = localStorage.getItem('void-chats');
-    if (savedChats) {
+    const loadChats = async () => {
       try {
-        const parsedChats = JSON.parse(savedChats).map((chat: any) => ({
-          ...chat,
-          createdAt: new Date(chat.createdAt),
-          updatedAt: new Date(chat.updatedAt),
-          messages: chat.messages.map((msg: any) => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp),
-          })),
-        }));
-        setChats(parsedChats);
-        
-        // Set the most recent chat as current
-        if (parsedChats.length > 0) {
-          setCurrentChatId(parsedChats[0].id);
+        setIsLoading(true);
+        const response = await fetch('http://127.0.0.1:8001/api/v1/sessions');
+        if (response.ok) {
+          const data = await response.json();
+          // Convert backend session format to frontend chat format
+          const formattedChats: Chat[] = data.sessions.map((session: any) => ({
+            id: session.id,
+            title: session.title || 'New Chat',
+            messages: [], // Messages are loaded separately when needed
+            createdAt: new Date(session.last_activity || Date.now()),
+            updatedAt: new Date(session.last_activity || Date.now()),
+          }));
+          setChats(formattedChats);
+          
+          // Set the most recent chat as current if none is set
+          if (formattedChats.length > 0 && !currentChatId) {
+            setCurrentChatId(formattedChats[0].id);
+          }
+        } else {
+          console.error('Failed to load chat sessions:', response.status);
         }
       } catch (error) {
-        console.error('Failed to load chat history:', error);
+        console.error('Failed to load chat sessions:', error);
+      } finally {
+        setIsLoading(false);
       }
-    }
-  }, []);
-
-  // Save chats to localStorage whenever chats change
-  useEffect(() => {
-    if (chats.length > 0) {
-      localStorage.setItem('void-chats', JSON.stringify(chats));
-    }
-  }, [chats]);
-
-  const createNewChat = useCallback(() => {
-    const newChat: Chat = {
-      id: `chat-${Date.now()}`,
-      title: 'New Chat',
-      messages: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
     };
 
-    setChats(prev => [newChat, ...prev]);
-    setCurrentChatId(newChat.id);
-    return newChat.id;
+    loadChats();
+  }, [currentChatId]);
+
+  const createNewChat = useCallback(async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:8001/api/v1/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const sessionId = data.session_id;
+        
+        const newChat: Chat = {
+          id: sessionId,
+          title: 'New Chat',
+          messages: [],
+          createdAt: new Date(data.created_at || Date.now()),
+          updatedAt: new Date(data.created_at || Date.now()),
+        };
+
+        setChats(prev => [newChat, ...prev]);
+        setCurrentChatId(sessionId);
+        return sessionId;
+      } else {
+        throw new Error('Failed to create session');
+      }
+    } catch (error) {
+      console.error('Failed to create new chat session:', error);
+      // Fallback to local UUID generation if backend fails
+      const fallbackId = `chat-${Date.now()}`;
+      const newChat: Chat = {
+        id: fallbackId,
+        title: 'New Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      setChats(prev => [newChat, ...prev]);
+      setCurrentChatId(fallbackId);
+      return fallbackId;
+    }
   }, []);
 
   const updateChat = useCallback((chatId: string, messages: ChatMessage[]) => {
@@ -103,5 +136,6 @@ export function useChatHistory() {
     updateChat,
     deleteChat,
     getCurrentChat,
+    isLoading,
   };
 }

@@ -185,13 +185,14 @@ class FloatChatRAGCore:
             logger.error(f"Error retrieving context: {str(e)}")
             return []
 
-    def engineer_prompt(self, user_query: str, context_docs: List[Dict[str, Any]]) -> str:
+    def engineer_prompt(self, user_query: str, context_docs: List[Dict[str, Any]], conversation_context: Optional[str] = None) -> str:
         """
         Assemble the complete prompt for the LLM with all required components.
 
         Args:
             user_query: Original user query
             context_docs: Retrieved context documents
+            conversation_context: Optional conversation history for context awareness
 
         Returns:
             Complete engineered prompt string
@@ -206,6 +207,11 @@ class FloatChatRAGCore:
                 context_text += f"\nMetadata: {json.dumps(doc['metadata'], indent=2)}\n"
                 context_text += "-" * 80 + "\n"
 
+        # Format conversation context if available
+        conversation_text = ""
+        if conversation_context:
+            conversation_text = f"\n\nCONVERSATION HISTORY:\n{conversation_context}\n"
+
         # Format few-shot examples
         examples_text = "\n\nFEW-SHOT EXAMPLES:\n"
         for i, example in enumerate(self.few_shot_examples, 1):
@@ -216,6 +222,8 @@ class FloatChatRAGCore:
 
         # Assemble complete prompt
         prompt = f"""You are a specialized SQL generator for oceanographic ARGO float data. Your task is to convert natural language queries into precise SQL statements.
+
+{conversation_text}
 
 {self.safety_constraints}
 
@@ -362,12 +370,13 @@ SQL:"""
 
         return min(score, 1.0)
 
-    def process_query(self, user_query: str) -> QueryResult:
+    def process_query(self, user_query: str, conversation_context: Optional[str] = None) -> QueryResult:
         """
         Complete RAG pipeline: embed query, retrieve context, generate SQL.
 
         Args:
             user_query: Natural language query from user
+            conversation_context: Optional conversation history for context awareness
 
         Returns:
             QueryResult object with SQL query and metadata
@@ -382,8 +391,8 @@ SQL:"""
             # Step 2: Retrieve relevant context
             context_docs = self.retrieve_context(query_embedding)
 
-            # Step 3: Engineer the prompt
-            prompt = self.engineer_prompt(user_query, context_docs)
+            # Step 3: Engineer the prompt with conversation context
+            prompt = self.engineer_prompt(user_query, context_docs, conversation_context)
 
             # Step 4: Invoke LLM
             sql_query = self.invoke_llm(prompt)
