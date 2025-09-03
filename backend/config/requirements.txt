@@ -1,0 +1,37 @@
+# FloatChat Backend Dependencies
+# Core web framework
+streamlit
+pydeck
+fastapi
+uvicorn[standard]
+
+# Database connectivity
+sqlalchemy
+psycopg2-binary
+pandas
+
+# Scientific data processing
+xarray
+netcdf4
+numpy
+
+# Vector database and embeddings
+chromadb
+sentence-transformers
+
+# HTTP requests for LLM API
+requests
+
+# Additional utilities
+python-multipart
+python-dotenv
+pydantic
+typing-extensions
+
+# Development and testing (optional)
+pytest
+pytest-asyncio
+httpx
+
+# Logging and monitoring
+structlog
