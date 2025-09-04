@@ -47,7 +47,7 @@ class ChatHistoryManager:
         """
         return str(uuid.uuid4())
 
-    def add_message(self, session_id: str, role: str, message: str, metadata: Optional[Dict] = None) -> bool:
+    def add_message(self, session_id: str, role: str, message: str, metadata: Optional[Dict] = None, full_response: Optional[Dict] = None) -> bool:
         """
         Add a message to the chat history for a specific session.
 
@@ -56,6 +56,7 @@ class ChatHistoryManager:
             role: 'user' or 'assistant'
             message: The message content
             metadata: Optional metadata dictionary
+            full_response: Optional complete AI response data including tables, maps, etc.
 
         Returns:
             Boolean indicating success
@@ -80,8 +81,8 @@ class ChatHistoryManager:
                 next_turn_index = self.get_next_turn_index(session_id)
                 
                 query = text("""
-                    INSERT INTO chat_history (session_id, turn_index, role, message, metadata, created_at)
-                    VALUES (:session_id, :turn_index, :role, :message, CAST(:metadata AS jsonb), :created_at)
+                    INSERT INTO chat_history (session_id, turn_index, role, message, metadata, full_response, created_at)
+                    VALUES (:session_id, :turn_index, :role, :message, CAST(:metadata AS jsonb), CAST(:full_response AS jsonb), :created_at)
                 """)
                 
                 params = {
@@ -90,6 +91,7 @@ class ChatHistoryManager:
                     'role': role,
                     'message': message,
                     'metadata': json.dumps(message_metadata),  # Convert dict to JSON string
+                    'full_response': json.dumps(full_response) if full_response else '{}',  # Convert full response to JSON string
                     'created_at': datetime.now()
                 }
                 
@@ -121,7 +123,7 @@ class ChatHistoryManager:
         try:
             with self.db_manager.get_session() as session:
                 query = text("""
-                    SELECT role, message, created_at
+                    SELECT role, message, full_response, created_at
                     FROM chat_history
                     WHERE session_id = :session_id
                     ORDER BY turn_index DESC
@@ -135,7 +137,8 @@ class ChatHistoryManager:
                     messages.append({
                         'role': row[0],
                         'content': row[1],
-                        'timestamp': row[2].isoformat() if row[2] else None
+                        'full_response': row[2] if row[2] else {},
+                        'timestamp': row[3].isoformat() if row[3] else None
                     })
                 
                 # Reverse to get chronological order

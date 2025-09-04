@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send } from 'lucide-react';
 import { ChatMessage } from './ChatMessage';
 import { ChatMessage as ChatMessageType } from '@/types/chat';
@@ -9,9 +9,21 @@ interface ChatInterfaceProps {
   messages: ChatMessageType[];
   isLoading: boolean;
   onSendMessage: (message: string) => void;
+  serverStatus?: {
+    isOnline: boolean;
+    lastChecked: Date | null;
+    error?: string;
+  };
+  serverCheckLoading?: boolean;
 }
 
-export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterfaceProps) {
+export function ChatInterface({
+  messages,
+  isLoading,
+  onSendMessage,
+  serverStatus,
+  serverCheckLoading = false
+}: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +48,20 @@ export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterf
   }, [messages, isLoading]);
 
 
+  const displayMessages = useMemo(() => {
+    if (isLoading) {
+      const thinkingMessage: ChatMessageType = {
+        id: 'thinking',
+        role: 'assistant',
+        content: 'VOID is thinking...',
+        timestamp: new Date(),
+        isLoading: true,
+      };
+      return [...messages, thinkingMessage];
+    }
+    return messages;
+  }, [messages, isLoading]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -59,6 +85,37 @@ export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterf
 
   return (
     <div className="flex flex-col h-full bg-black">
+      {/* Permanent server status indicator */}
+      <div className="border-b border-gray-800">
+        {serverCheckLoading && (
+          <div className="bg-yellow-900 text-yellow-100 p-2 text-sm">
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+              <span>Checking server status...</span>
+            </div>
+          </div>
+        )}
+        
+        {serverStatus && !serverStatus.isOnline && !serverCheckLoading && (
+          <div className="bg-red-900 text-red-100 p-2 text-sm">
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+              <span>
+                Server offline - {serverStatus.error || 'Cannot create new chats'}
+              </span>
+            </div>
+          </div>
+        )}
+        
+        {serverStatus && serverStatus.isOnline && (
+          <div className="bg-green-900 text-green-100 p-2 text-sm">
+            <div className="flex items-center justify-center gap-2">
+              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+              <span>Server online - Ready for queries</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
@@ -79,21 +136,10 @@ export function ChatInterface({ messages, isLoading, onSendMessage }: ChatInterf
           </div>
         ) : (
           <div className="min-h-full">
-            {messages.map((message) => (
+            {displayMessages.map((message) => (
               <ChatMessage key={message.id} message={message} />
             ))}
             <div ref={messagesEndRef} className="h-4" />
-          </div>
-        )}
-        
-        {isLoading && (
-          <div className="p-6 bg-black sticky bottom-0">
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              </div>
-              <div className="text-sm text-gray-400">VOID is analyzing your query...</div>
-            </div>
           </div>
         )}
       </div>

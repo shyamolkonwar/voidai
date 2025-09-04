@@ -331,9 +331,42 @@ async def process_query_v1(
             # Persist user message
             chat_manager.add_message(request.session_id, "user", request.query)
             
-            # Persist assistant response
+            # Prepare full response data for assistant message
+            full_response_data = {
+                "type": "table",  # Default to table for API responses
+                "data": limited_data,
+                "sql_query": rag_result.sql_query,
+                "row_count": actual_row_count,
+                "confidence_score": rag_result.confidence_score,
+                "execution_time": total_execution_time,
+                "reasoning": rag_result.reasoning,
+                "summary": rag_result.reasoning,
+                "success": db_result.success
+            }
+            
+            # Include error message if query failed
+            if not db_result.success:
+                full_response_data["error_message"] = db_result.error_message
+            
+            # Include context if requested and available
+            if request.include_context and rag_result.retrieved_context:
+                full_response_data["context"] = [
+                    {
+                        "content": doc["content"][:500] + "..." if len(doc["content"]) > 500 else doc["content"],
+                        "metadata": doc["metadata"],
+                        "similarity_score": doc["similarity_score"]
+                    }
+                    for doc in rag_result.retrieved_context
+                ]
+            
+            # Persist assistant response with complete data
             assistant_message = rag_result.reasoning if rag_result.reasoning else "Query processed successfully"
-            chat_manager.add_message(request.session_id, "assistant", assistant_message)
+            chat_manager.add_message(
+                request.session_id,
+                "assistant",
+                assistant_message,
+                full_response=full_response_data
+            )
             
             # Clean up old messages to keep history manageable
             chat_manager.cleanup_old_messages(request.session_id)
@@ -462,9 +495,42 @@ async def process_query(
             # Persist user message
             chat_manager.add_message(request.session_id, "user", request.query)
             
-            # Persist assistant response
+            # Prepare full response data for assistant message
+            full_response_data = {
+                "type": response_type,
+                "data": limited_data,
+                "sql_query": rag_result.sql_query,
+                "row_count": actual_row_count,
+                "confidence_score": rag_result.confidence_score,
+                "execution_time": total_execution_time,
+                "reasoning": rag_result.reasoning,
+                "summary": summary_text,
+                "success": db_result.success
+            }
+            
+            # Include error message if query failed
+            if not db_result.success:
+                full_response_data["error_message"] = db_result.error_message
+            
+            # Include context if requested and available
+            if request.include_context and rag_result.retrieved_context:
+                full_response_data["context"] = [
+                    {
+                        "content": doc["content"][:500] + "..." if len(doc["content"]) > 500 else doc["content"],
+                        "metadata": doc["metadata"],
+                        "similarity_score": doc["similarity_score"]
+                    }
+                    for doc in rag_result.retrieved_context
+                ]
+            
+            # Persist assistant response with complete data
             assistant_message = summary_text if summary_text else "Query processed successfully"
-            chat_manager.add_message(request.session_id, "assistant", assistant_message)
+            chat_manager.add_message(
+                request.session_id,
+                "assistant",
+                assistant_message,
+                full_response=full_response_data
+            )
             
             # Clean up old messages to keep history manageable
             chat_manager.cleanup_old_messages(request.session_id)

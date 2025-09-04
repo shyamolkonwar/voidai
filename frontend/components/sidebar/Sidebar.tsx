@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Plus, MessageSquare, Trash2, Menu, X } from 'lucide-react';
 import { Chat } from '@/types/chat';
@@ -86,18 +87,17 @@ export function Sidebar({
               <h1 className="text-xl font-bold text-white">VOID</h1>
             </div>
             
-            <button
-              onClick={isHomePage ? undefined : () => router.push('/')}
-              disabled={isHomePage}
+            <Link
+              href="/"
               className={`w-full flex items-center gap-3 px-3 py-2 text-sm rounded-md transition-colors ${
                 isHomePage
-                  ? 'text-gray-500 bg-gray-900 cursor-not-allowed'
+                  ? 'text-gray-500 bg-gray-900 cursor-not-allowed pointer-events-none'
                   : 'text-white bg-gray-800 hover:bg-gray-700 cursor-pointer'
               }`}
             >
               <Plus className="w-4 h-4" />
               New Chat
-            </button>
+            </Link>
           </div>
 
           {/* Chat History */}

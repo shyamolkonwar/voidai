@@ -25,11 +25,6 @@ export function useChatHistory() {
             updatedAt: new Date(session.last_activity || Date.now()),
           }));
           setChats(formattedChats);
-          
-          // Set the most recent chat as current if none is set
-          if (formattedChats.length > 0 && !currentChatId) {
-            setCurrentChatId(formattedChats[0].id);
-          }
         } else {
           console.error('Failed to load chat sessions:', response.status);
         }
@@ -41,7 +36,7 @@ export function useChatHistory() {
     };
 
     loadChats();
-  }, [currentChatId]);
+  }, []);
 
   const createNewChat = useCallback(async () => {
     try {
@@ -88,41 +83,67 @@ export function useChatHistory() {
   }, []);
 
   const updateChat = useCallback((chatId: string, messages: ChatMessage[]) => {
-    setChats(prev => prev.map(chat => {
-      if (chat.id === chatId) {
-        const updatedChat = {
-          ...chat,
+    setChats(prev => {
+      const chatExists = prev.some(chat => chat.id === chatId);
+      if (chatExists) {
+        return prev.map(chat => {
+          if (chat.id === chatId) {
+            const updatedChat = {
+              ...chat,
+              messages,
+              updatedAt: new Date(),
+            };
+
+            if (messages.length > 0 && chat.title === 'New Chat') {
+              const firstUserMessage = messages.find(msg => msg.role === 'user');
+              if (firstUserMessage) {
+                updatedChat.title = firstUserMessage.content.slice(0, 50) + 
+                  (firstUserMessage.content.length > 50 ? '...' : '');
+              }
+            }
+
+            return updatedChat;
+          }
+          return chat;
+        });
+      } else {
+        const firstUserMessage = messages.find(msg => msg.role === 'user');
+        const newChat: Chat = {
+          id: chatId,
+          title: firstUserMessage ? firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? '...' : '') : 'New Chat',
           messages,
+          createdAt: new Date(),
           updatedAt: new Date(),
         };
-
-        // Update title based on first user message
-        if (messages.length > 0 && chat.title === 'New Chat') {
-          const firstUserMessage = messages.find(msg => msg.role === 'user');
-          if (firstUserMessage) {
-            updatedChat.title = firstUserMessage.content.slice(0, 50) + 
-              (firstUserMessage.content.length > 50 ? '...' : '');
-          }
-        }
-
-        return updatedChat;
+        return [newChat, ...prev];
       }
-      return chat;
-    }));
+    });
   }, []);
 
-  const deleteChat = useCallback((chatId: string) => {
-    setChats(prev => {
-      const filtered = prev.filter(chat => chat.id !== chatId);
-      
-      // If we deleted the current chat, switch to the next available one
-      if (chatId === currentChatId) {
-        setCurrentChatId(filtered.length > 0 ? filtered[0].id : null);
+  const deleteChat = useCallback(async (chatId: string) => {
+    try {
+      const response = await fetch(`http://127.0.0.1:8001/api/v1/sessions/${chatId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        setChats(prev => {
+          const filtered = prev.filter(chat => chat.id !== chatId);
+          
+          // If we deleted the current chat, switch to the next available one
+          if (chatId === currentChatId) {
+            setCurrentChatId(filtered.length > 0 ? filtered[0].id : null);
+          }
+          
+          return filtered;
+        });
+      } else {
+        console.error('Failed to delete chat session:', response.status);
       }
-      
-      return filtered;
-    });
-  }, [currentChatId]);
+    } catch (error) {
+      console.error('Failed to delete chat session:', error);
+    }
+  }, [currentChatId, setChats, setCurrentChatId]);
 
   const getCurrentChat = useCallback(() => {
     return chats.find(chat => chat.id === currentChatId) || null;
