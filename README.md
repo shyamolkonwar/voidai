@@ -490,15 +490,6 @@ python -m src.main --debug
 # Frontend debug
 npm run dev -- --verbose
 ```
-
-***
-
-## Contributing
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature-name`
-3. Make changes and test thoroughly
-4. Submit pull request with clear description
-
 ***
 
 VOID empowers researchers to explore oceanographic float data using natural language, dynamic visualizations, and context-aware AI—bringing deep exploratory analysis within reach.
