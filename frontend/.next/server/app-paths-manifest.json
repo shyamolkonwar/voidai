@@ -1,9 +1,6 @@
 {
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/chat/route": "app/api/chat/route.js",
-  "/api/chat/sessions/[sessionId]/history/route": "app/api/chat/sessions/[sessionId]/history/route.js",
   "/api/chat/sessions/route": "app/api/chat/sessions/route.js",
-  "/about/page": "app/about/page.js",
-  "/chat/page": "app/chat/page.js",
-  "/page": "app/page.js"
+  "/api/chat/sessions/[sessionId]/history/route": "app/api/chat/sessions/[sessionId]/history/route.js",
+  "/api/chat/route": "app/api/chat/route.js",
+  "/chat/page": "app/chat/page.js"
 }

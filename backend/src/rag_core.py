@@ -19,6 +19,7 @@ import chromadb
 from chromadb.config import Settings
 import requests
 from dataclasses import dataclass
+from geocoding_service import GeographicService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -118,8 +119,16 @@ class FloatChatRAGCore:
             {
                 "query": "What is the average salinity at 1000 meter depth across all floats?",
                 "sql": "SELECT AVG(p.salinity) as avg_salinity, COUNT(*) as measurement_count FROM profiles p WHERE p.depth BETWEEN 950 AND 1050 AND p.salinity IS NOT NULL AND p.quality_flag IN (1, 2);"
+            },
+            {
+                "query": "Show me temperature measurements near Mumbai",
+                "sql": "SELECT p.temperature, p.depth, c.profile_date, c.latitude, c.longitude, (6371 * acos(cos(radians(19.0760)) * cos(radians(c.latitude)) * cos(radians(c.longitude) - radians(72.8777)) + sin(radians(19.0760)) * sin(radians(c.latitude)))) as distance_km FROM profiles p JOIN cycles c ON p.cycle_id = c.cycle_id WHERE (6371 * acos(cos(radians(19.0760)) * cos(radians(c.latitude)) * cos(radians(c.longitude) - radians(72.8777)) + sin(radians(19.0760)) * sin(radians(c.latitude)))) <= 500 AND p.temperature IS NOT NULL AND p.quality_flag IN (1, 2) ORDER BY distance_km, c.profile_date;"
             }
         ]
+
+        # Initialize geographic service
+        self.geo_service = GeographicService(use_external_geocoding=True)
+        logger.info("Initialized geographic service")
 
         # Safety constraints
         self.safety_constraints = """
@@ -131,6 +140,7 @@ class FloatChatRAGCore:
         5. Handle NULL values appropriately with IS NOT NULL or COALESCE.
         6. Use LIMIT clause for queries that might return large datasets.
         7. Always use parameterized queries to prevent SQL injection (though this will be handled by the database layer).
+        8. When location context is provided, use geographic proximity queries with proper coordinate filtering.
         """
 
     def embed_query(self, query: str) -> List[float]:
@@ -212,6 +222,22 @@ class FloatChatRAGCore:
         if conversation_context:
             conversation_text = f"\n\nCONVERSATION HISTORY:\n{conversation_context}\n"
 
+        # Check for location context
+        location_context = None
+        enhanced_query, location_context = self.geo_service.enhance_query_with_location(user_query)
+        
+        location_text = ""
+        fallback_guidance = ""
+        if location_context:
+            location_text = f"\n\nGEOGRAPHIC CONTEXT:\n{location_context}\n"
+            fallback_guidance = """
+
+IF NO RESULTS FOUND:
+- Try removing geographic constraints to check if data exists
+- Consider using broader geographic boundaries
+- Check if location is outside ARGO deployment areas
+- Try querying for global data with ORDER BY distance from target location"""
+
         # Format few-shot examples
         examples_text = "\n\nFEW-SHOT EXAMPLES:\n"
         for i, example in enumerate(self.few_shot_examples, 1):
@@ -221,7 +247,7 @@ class FloatChatRAGCore:
             examples_text += "-" * 40 + "\n"
 
         # Assemble complete prompt
-        prompt = f"""You are a specialized SQL generator for oceanographic ARGO float data. Your task is to convert natural language queries into precise SQL statements.
+        prompt = f"""You are a specialized SQL generator for oceanographic ARGO float data. Your task is to convert natural language queries into precise SQL SELECT statements.
 
 {conversation_text}
 
@@ -231,6 +257,8 @@ DATABASE SCHEMA:
 {self.database_schema}
 
 {context_text}
+
+{location_text}
 
 {examples_text}
 
@@ -246,9 +274,11 @@ IMPORTANT GUIDELINES:
 - Use LIMIT if the query might return many rows
 - Handle NULL values appropriately
 - If the user query mentions location, map, or coordinates, you MUST include the `c.latitude` and `c.longitude` columns from the `cycles` table in the SELECT statement.
+- When geographic context is provided, use the Haversine formula for proximity searches with the cycles table (aliased as 'c')
 - Return only the SQL statement, no explanations
 - PAY SPECIAL ATTENTION TO THE CONVERSATION HISTORY ABOVE - use it to understand the context of follow-up questions
 - If the user asks a follow-up question without specifying details, infer the context from the previous conversation
+{fallback_guidance}
 
 SQL:"""
 

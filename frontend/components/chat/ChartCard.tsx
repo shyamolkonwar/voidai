@@ -12,7 +12,7 @@ export default function ChartCard({
   data,
   title,
   width = "100%",
-  height = "300px"
+  height = "400px"
 }: {
   chartType: string;
   data: any[];
@@ -28,7 +28,12 @@ export default function ChartCard({
 
     // Clean up previous chart
     if (chartRef.current) {
-      chartRef.current.remove();
+      try {
+        chartRef.current.remove();
+      } catch (error) {
+        // Chart already disposed, ignore the error
+        console.warn('Chart already disposed:', error);
+      }
       chartRef.current = null;
     }
 

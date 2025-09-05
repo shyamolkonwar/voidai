@@ -31,10 +31,39 @@ function formatChartData(data: any[], visualizationType?: string): any[] {
   }
 
   // Format data for lightweight-charts
-  return data.map(row => ({
-    time: row[xKey],
-    value: parseFloat(row[yKey]) || 0
-  }));
+  const formattedData = data.map(row => {
+    let timeValue = row[xKey];
+    let numericTime;
+    
+    // Handle different date formats and convert to Unix timestamp for proper sorting
+    if (typeof timeValue === 'number') {
+      numericTime = timeValue;
+    } else if (typeof timeValue === 'string') {
+      try {
+        const date = new Date(timeValue);
+        numericTime = isNaN(date.getTime()) ? Date.now() / 1000 : date.getTime() / 1000;
+      } catch (e) {
+        numericTime = Date.now() / 1000;
+      }
+    } else if (timeValue instanceof Date) {
+      numericTime = timeValue.getTime() / 1000;
+    } else {
+      // Fallback to current timestamp
+      numericTime = Date.now() / 1000;
+    }
+    
+    return {
+      time: numericTime,
+      value: parseFloat(row[yKey]) || 0
+    };
+  });
+  
+  // Remove duplicates and sort by time in ascending order
+  const uniqueData = formattedData.filter((item, index, self) => 
+    index === self.findIndex(t => t.time === item.time)
+  );
+  
+  return uniqueData.sort((a, b) => a.time - b.time);
 }
 
 export type Chat = {

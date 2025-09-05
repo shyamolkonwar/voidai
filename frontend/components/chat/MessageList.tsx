@@ -30,7 +30,8 @@ export default function MessageList({ messages }: { messages: ChatMessage[] }) {
         >
           <div
             className={[
-              "max-w-[85%] leading-relaxed",
+              m.kind === "chart" ? "max-w-[95%] w-full" : "max-w-[85%]",
+              "leading-relaxed",
               m.role === "user"
                 ? "liquid-glass liquid-radius px-4 py-3"
                 : "liquid-glass liquid-radius px-4 py-3",
@@ -63,11 +64,13 @@ export default function MessageList({ messages }: { messages: ChatMessage[] }) {
 
             {m.kind === "chart" && m.chart && (
               <div className="mt-3">
-                <div className="liquid-glass liquid-radius p-3">
+                <div className="liquid-glass liquid-radius p-3 w-full">
                   <ChartCard
                     chartType={m.chart.type.charAt(0).toUpperCase() + m.chart.type.slice(1) as any}
                     data={m.chart.data}
                     title={`${m.chart.type.charAt(0).toUpperCase() + m.chart.type.slice(1)} Chart`}
+                    width="100%"
+                    height="400px"
                   />
                 </div>
               </div>

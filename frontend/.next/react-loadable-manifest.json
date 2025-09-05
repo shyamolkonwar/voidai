@@ -1,14 +1,8 @@
 {
-  "components/Hero.tsx -> ../components/chat/ChatBox": {
-    "id": 4160,
-    "files": [
-      "static/chunks/160.3e771af22025e20d.js"
-    ]
-  },
   "node_modules/@vis.gl/react-mapbox/dist/components/map.js -> mapbox-gl": {
-    "id": 7856,
+    "id": "node_modules/@vis.gl/react-mapbox/dist/components/map.js -> mapbox-gl",
     "files": [
-      "static/chunks/c36f3faa.eb4e94d24bf67932.js"
+      "static/chunks/_app-pages-browser_node_modules_mapbox-gl_dist_mapbox-gl_js.js"
     ]
   }
 }
