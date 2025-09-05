@@ -8,7 +8,7 @@ import ChatInput from "./ChatInput";
 import Loader from "./Loader";
 import { ApiClient } from "../../lib/api";
 import { SessionManager } from "../../lib/session";
-import { QueryResponse } from "../../types/api";
+import { QueryResponse, SessionInfo } from "../../types/api";
 
 /**
  * Format data for chart visualization
@@ -127,12 +127,12 @@ export default function ChatShell() {
       try {
         const response = await ApiClient.getSessions();
         if (response.sessions.length > 0) {
-          const fetchedChats = response.sessions.map(session => ({
+          const fetchedChats = response.sessions.map((session: SessionInfo) => ({
             id: session.id,
             title: session.title,
             messages: [],
             message_count: session.message_count,
-            last_activity: session.last_activity,
+            last_activity: session.last_message_at,
           }));
           setChats(fetchedChats);
           setCurrentChatId(fetchedChats[0].id);
@@ -422,7 +422,7 @@ export default function ChatShell() {
           const history = await ApiClient.getSessionHistory(sessionId);
           if (history.messages && history.messages.length > 0) {
             // Convert backend messages to frontend format
-            const formattedMessages: ChatMessage[] = history.messages.map(msg => {
+            const formattedMessages: ChatMessage[] = history.messages.map((msg: ChatMessage) => {
               if (msg.role === 'assistant') {
                 // Re-process full_response to get kind, map, table, chart
                 return formatAssistantMessage(msg.full_response as QueryResponse);

@@ -5,12 +5,10 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: Promise<{ sessionId: string }> }
 ) {
+  const { sessionId } = await params;
   try {
-    const pathname = request.nextUrl.pathname;
-    const parts = pathname.split('/');
-    const sessionId = parts[4];
 
     if (!sessionId) {
       return NextResponse.json(

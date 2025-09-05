@@ -72,7 +72,6 @@ export default function MapCard({ lat, lng, zoom = 12, points }: MapCardProps) {
           mapboxAccessToken={MAPBOX_TOKEN}
           onLoad={handleMapLoad}
           onError={handleMapError}
-          onWebGLContextLost={handleWebGLContextLost}
         >
           <Marker longitude={lng} latitude={lat} color="#3B82F6" />
           {points && points.map((point, index) => (
