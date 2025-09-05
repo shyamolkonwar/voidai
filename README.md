@@ -322,7 +322,7 @@ The frontend uses Next.js API routes as a proxy to the backend for CORS handling
 ### 1. Clone and Setup
 
 ```bash
-git clone <repository-url>
+git clone <https://github.com/shyamolkonwar/voidai.git>
 cd VOID_1
 ```
 
@@ -498,11 +498,6 @@ npm run dev -- --verbose
 2. Create feature branch: `git checkout -b feature-name`
 3. Make changes and test thoroughly
 4. Submit pull request with clear description
-
-***
-
-## License
-This project is licensed under the MIT License.
 
 ***
 
