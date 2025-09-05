@@ -236,7 +236,7 @@ DATABASE SCHEMA:
 
 USER QUERY: {user_query}
 
-Based on the provided context, database schema, and examples, generate a SQL SELECT statement that accurately answers the user's query. 
+Based on the provided context, database schema, conversation history, and examples, generate a SQL SELECT statement that accurately answers the user's query.
 
 IMPORTANT GUIDELINES:
 - Only generate a single SQL SELECT statement
@@ -245,7 +245,10 @@ IMPORTANT GUIDELINES:
 - Add quality control filters for measurement data
 - Use LIMIT if the query might return many rows
 - Handle NULL values appropriately
+- If the user query mentions location, map, or coordinates, you MUST include the `c.latitude` and `c.longitude` columns from the `cycles` table in the SELECT statement.
 - Return only the SQL statement, no explanations
+- PAY SPECIAL ATTENTION TO THE CONVERSATION HISTORY ABOVE - use it to understand the context of follow-up questions
+- If the user asks a follow-up question without specifying details, infer the context from the previous conversation
 
 SQL:"""
 
@@ -407,7 +410,7 @@ SQL:"""
                 confidence_score=confidence_score,
                 retrieved_context=context_docs,
                 processing_time=processing_time,
-                reasoning=f"Generated SQL based on {len(context_docs)} relevant context documents"
+                reasoning="Here is the data you requested:"
             )
 
             logger.info(f"Query processed successfully in {processing_time:.2f}s")

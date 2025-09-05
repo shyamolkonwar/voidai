@@ -26,6 +26,7 @@ import uvicorn
 from src.rag_core import FloatChatRAGCore, QueryResult
 from src.db_manager import FloatChatDBManager, QueryExecutionResult
 from src.chat_history_manager import ChatHistoryManager
+from src.intent_service import IntentDetectionService, ResponseType, IntentResult
 
 # Configure logging
 logging.basicConfig(
@@ -48,6 +49,7 @@ MAX_QUERY_TIME = int(os.getenv("MAX_QUERY_TIME", "30"))
 rag_core: Optional[FloatChatRAGCore] = None
 db_manager: Optional[FloatChatDBManager] = None
 chat_history_manager: Optional[ChatHistoryManager] = None
+intent_service: Optional[IntentDetectionService] = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -55,7 +57,7 @@ async def lifespan(app: FastAPI):
     Application lifespan manager for startup and shutdown events.
     """
     # Startup
-    global rag_core, db_manager, chat_history_manager
+    global rag_core, db_manager, chat_history_manager, intent_service
 
     logger.info("Starting FloatChat API server...")
 
@@ -82,6 +84,11 @@ async def lifespan(app: FastAPI):
             llm_endpoint=LLM_ENDPOINT
         )
         logger.info("RAG core initialized")
+
+        # Initialize Intent Detection Service
+        logger.info("Initializing Intent Detection Service...")
+        intent_service = IntentDetectionService()
+        logger.info("Intent Detection Service initialized")
 
         logger.info("FloatChat API server startup complete")
 
@@ -126,18 +133,18 @@ class QueryRequest(BaseModel):
     max_results: int = Field(default=100, description="Maximum number of result rows", ge=1, le=1000)
 
 class QueryResponse(BaseModel):
-    """Response model for query results"""
-    success: bool = Field(..., description="Whether the query was successful")
-    data: list = Field(..., description="Query result data")
-    sql_query: str = Field(..., description="Generated SQL query")
-    row_count: int = Field(..., description="Number of rows returned")
-    confidence_score: float = Field(..., description="Confidence score for the query")
-    execution_time: float = Field(..., description="Total execution time in seconds")
-    reasoning: str = Field(..., description="Explanation of the query generation")
-    error_message: Optional[str] = Field(default=None, description="Error message if query failed")
-    context: Optional[list] = Field(default=None, description="Retrieved context documents")
-    type: str = Field(default="text", description="Response type: map, table, or text")
-    summary: Optional[str] = Field(default=None, description="Summary text for display")
+    """Enhanced response model with intent information"""
+    success: bool
+    data: list
+    sql_query: str
+    row_count: int
+    confidence_score: float
+    execution_time: float
+    reasoning: str
+    response_type: str = Field(default="data_query", description="Type of response: conversational, data_query, visualization, map, etc.")
+    visualization_type: Optional[str] = Field(default=None, description="Specific visualization type if applicable")
+    error_message: Optional[str] = None
+    context: Optional[list] = None
 
 class StatusResponse(BaseModel):
     """Response model for status endpoint"""
@@ -174,6 +181,15 @@ async def get_chat_history_manager() -> ChatHistoryManager:
             detail="Chat history manager not initialized"
         )
     return chat_history_manager
+
+async def get_intent_service() -> IntentDetectionService:
+    """Dependency for Intent Detection Service instance"""
+    if intent_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Intent Detection Service not initialized"
+        )
+    return intent_service
 
 # Session management endpoints
 class SessionCreateResponse(BaseModel):
@@ -279,303 +295,52 @@ async def get_status(
         )
 
 @app.post("/api/v1/query", response_model=QueryResponse)
-async def process_query_v1(
-    request: QueryRequest,
-    rag: FloatChatRAGCore = Depends(get_rag_core),
-    db: FloatChatDBManager = Depends(get_db_manager),
-    chat_manager: ChatHistoryManager = Depends(get_chat_history_manager)
-):
-    """
-    Process a natural language query and return SQL results.
-
-    This endpoint orchestrates the complete workflow:
-    1. Converts natural language to SQL using RAG
-    2. Validates and executes the SQL query
-    3. Returns structured results with metadata
-    """
-    start_time = time.time()
-
-    try:
-        logger.info(f"Processing query: {request.query}")
-
-        # Step 1: Handle session context
-        conversation_context = None
-        if request.session_id:
-            # Get conversation history for context
-            conversation_context = chat_manager.get_conversation_context(request.session_id)
-            logger.info(f"Using conversation context for session {request.session_id}")
-        
-        # Step 2: Generate SQL using RAG core with conversation context
-        logger.info("Generating SQL using RAG core...")
-        rag_result: QueryResult = rag.process_query(request.query, conversation_context)
-
-        if not rag_result.sql_query:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to generate SQL query from natural language input"
-            )
-
-        # Step 2: Execute SQL using database manager
-        logger.info("Executing SQL query...")
-        db_result: QueryExecutionResult = db.execute_query(
-            rag_result.sql_query,
-            timeout=MAX_QUERY_TIME
-        )
-
-        # Step 3: Limit results if necessary
-        limited_data = db_result.data[:request.max_results] if db_result.data else []
-        actual_row_count = len(limited_data)
-
-        # Step 4: Persist messages to chat history if session exists
-        if request.session_id:
-            # Persist user message
-            chat_manager.add_message(request.session_id, "user", request.query)
-            
-            # Prepare full response data for assistant message
-            full_response_data = {
-                "type": "table",  # Default to table for API responses
-                "data": limited_data,
-                "sql_query": rag_result.sql_query,
-                "row_count": actual_row_count,
-                "confidence_score": rag_result.confidence_score,
-                "execution_time": total_execution_time,
-                "reasoning": rag_result.reasoning,
-                "summary": rag_result.reasoning,
-                "success": db_result.success
-            }
-            
-            # Include error message if query failed
-            if not db_result.success:
-                full_response_data["error_message"] = db_result.error_message
-            
-            # Include context if requested and available
-            if request.include_context and rag_result.retrieved_context:
-                full_response_data["context"] = [
-                    {
-                        "content": doc["content"][:500] + "..." if len(doc["content"]) > 500 else doc["content"],
-                        "metadata": doc["metadata"],
-                        "similarity_score": doc["similarity_score"]
-                    }
-                    for doc in rag_result.retrieved_context
-                ]
-            
-            # Persist assistant response with complete data
-            assistant_message = rag_result.reasoning if rag_result.reasoning else "Query processed successfully"
-            chat_manager.add_message(
-                request.session_id,
-                "assistant",
-                assistant_message,
-                full_response=full_response_data
-            )
-            
-            # Clean up old messages to keep history manageable
-            chat_manager.cleanup_old_messages(request.session_id)
-
-        # Step 4: Calculate total execution time
-        total_execution_time = time.time() - start_time
-
-        # Step 5: Prepare response
-        response_data = {
-            "success": db_result.success,
-            "data": limited_data,
-            "sql_query": rag_result.sql_query,
-            "row_count": actual_row_count,
-            "confidence_score": rag_result.confidence_score,
-            "execution_time": total_execution_time,
-            "reasoning": rag_result.reasoning,
-            "error_message": db_result.error_message if not db_result.success else None,
-            "type": "table",  # Default to table for API responses
-            "summary": rag_result.reasoning
-        }
-
-        # Include context if requested
-        if request.include_context and rag_result.retrieved_context:
-            response_data["context"] = [
-                {
-                    "content": doc["content"][:500] + "..." if len(doc["content"]) > 500 else doc["content"],
-                    "metadata": doc["metadata"],
-                    "similarity_score": doc["similarity_score"]
-                }
-                for doc in rag_result.retrieved_context
-            ]
-
-        # Log the result
-        if db_result.success:
-            logger.info(f"Query processed successfully: {actual_row_count} rows, {total_execution_time:.2f}s")
-        else:
-            logger.warning(f"Query failed: {db_result.error_message}")
-
-        return QueryResponse(**response_data)
-
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-
-    except Exception as e:
-        logger.error(f"Unexpected error processing query: {str(e)}")
-        total_execution_time = time.time() - start_time
-
-        return QueryResponse(
-            success=False,
-            data=[],
-            sql_query="",
-            row_count=0,
-            confidence_score=0.0,
-            execution_time=total_execution_time,
-            reasoning="Query processing failed due to internal error",
-            error_message=f"Internal server error: {str(e)}",
-            type="text",
-            summary="Sorry, I encountered an issue processing your query."
-        )
-
-@app.post("/query", response_model=QueryResponse)
 async def process_query(
     request: QueryRequest,
     rag: FloatChatRAGCore = Depends(get_rag_core),
     db: FloatChatDBManager = Depends(get_db_manager),
+    intent_service: IntentDetectionService = Depends(get_intent_service),
     chat_manager: ChatHistoryManager = Depends(get_chat_history_manager)
 ):
     """
-    Process a natural language query and return results in frontend-compatible format.
-    
-    This endpoint provides the response format expected by the Streamlit frontend.
+    Dynamically process queries based on user intent
     """
     start_time = time.time()
-
+    
     try:
-        logger.info(f"Processing frontend query: {request.query}")
-
-        # Step 1: Handle session context
-        conversation_context = None
-        if request.session_id:
-            # Get conversation history for context
-            conversation_context = chat_manager.get_conversation_context(request.session_id)
-            logger.info(f"Using conversation context for session {request.session_id}")
+        logger.info(f"Processing query: {request.query}")
         
-        # Step 2: Generate SQL using RAG core with conversation context
-        logger.info("Generating SQL using RAG core...")
-        rag_result: QueryResult = rag.process_query(request.query, conversation_context)
-
-        if not rag_result.sql_query:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to generate SQL query from natural language input"
-            )
-
-        # Step 2: Execute SQL using database manager
-        logger.info("Executing SQL query...")
-        db_result: QueryExecutionResult = db.execute_query(
-            rag_result.sql_query,
-            timeout=MAX_QUERY_TIME
-        )
-
-        # Step 3: Limit results if necessary
-        limited_data = db_result.data[:request.max_results] if db_result.data else []
-        actual_row_count = len(limited_data)
-
-        # Step 4: Calculate total execution time
-        total_execution_time = time.time() - start_time
-
-        # Step 5: Determine response type based on data content
-        response_type = "text"
-        summary_text = rag_result.reasoning
-        
-        if db_result.success and limited_data:
-            # Check if we have geographic data for map display
-            has_geo_data = any('latitude' in row and 'longitude' in row for row in limited_data)
-            if has_geo_data:
-                response_type = "map"
-                summary_text = f"Showing {actual_row_count} geographic data points"
-            else:
-                response_type = "table"
-                summary_text = f"Showing {actual_row_count} data rows"
-
-        # Step 6: Persist messages to chat history if session exists
+        # Step 1: Get chat history for context
+        recent_messages = []
         if request.session_id:
-            # Persist user message
-            chat_manager.add_message(request.session_id, "user", request.query)
-            
-            # Prepare full response data for assistant message
-            full_response_data = {
-                "type": response_type,
-                "data": limited_data,
-                "sql_query": rag_result.sql_query,
-                "row_count": actual_row_count,
-                "confidence_score": rag_result.confidence_score,
-                "execution_time": total_execution_time,
-                "reasoning": rag_result.reasoning,
-                "summary": summary_text,
-                "success": db_result.success
-            }
-            
-            # Include error message if query failed
-            if not db_result.success:
-                full_response_data["error_message"] = db_result.error_message
-            
-            # Include context if requested and available
-            if request.include_context and rag_result.retrieved_context:
-                full_response_data["context"] = [
-                    {
-                        "content": doc["content"][:500] + "..." if len(doc["content"]) > 500 else doc["content"],
-                        "metadata": doc["metadata"],
-                        "similarity_score": doc["similarity_score"]
-                    }
-                    for doc in rag_result.retrieved_context
-                ]
-            
-            # Persist assistant response with complete data
-            assistant_message = summary_text if summary_text else "Query processed successfully"
-            chat_manager.add_message(
-                request.session_id,
-                "assistant",
-                assistant_message,
-                full_response=full_response_data
-            )
-            
-            # Clean up old messages to keep history manageable
-            chat_manager.cleanup_old_messages(request.session_id)
-
-        # Step 7: Prepare response for frontend
-        response_data = {
-            "success": db_result.success,
-            "data": limited_data,
-            "sql_query": rag_result.sql_query,
-            "row_count": actual_row_count,
-            "confidence_score": rag_result.confidence_score,
-            "execution_time": total_execution_time,
-            "reasoning": rag_result.reasoning,
-            "error_message": db_result.error_message if not db_result.success else None,
-            "type": response_type,
-            "summary": summary_text
-        }
-
-        # Include context if requested
-        if request.include_context and rag_result.retrieved_context:
-            response_data["context"] = [
-                {
-                    "content": doc["content"][:500] + "..." if len(doc["content"]) > 500 else doc["content"],
-                    "metadata": doc["metadata"],
-                    "similarity_score": doc["similarity_score"]
-                }
-                for doc in rag_result.retrieved_context
-            ]
-
-        # Log the result
-        if db_result.success:
-            logger.info(f"Frontend query processed successfully: {actual_row_count} rows, type: {response_type}, {total_execution_time:.2f}s")
+            try:
+                recent_messages = chat_manager.get_recent_history(request.session_id, limit=10)
+                logger.info(f"Retrieved {len(recent_messages)} messages for context")
+            except Exception as e:
+                logger.warning(f"Failed to retrieve chat history: {str(e)}")
+        
+        # Step 2: Analyze user intent with history context
+        intent_result = intent_service.analyze_intent(request.query, chat_history=recent_messages)
+        logger.info(f"Detected intent: {intent_result.response_type.value} (confidence: {intent_result.confidence:.2f})")
+        
+        # Step 3: Route based on intent
+        if intent_result.response_type == ResponseType.CONVERSATIONAL:
+            return await handle_conversational_query(request, intent_result, rag, chat_manager, start_time, recent_messages)
+        
+        elif intent_result.response_type == ResponseType.HELP:
+            return await handle_help_query(request, chat_manager, start_time)
+        
+        elif intent_result.requires_data:
+            return await handle_data_query(request, intent_result, rag, db, chat_manager, start_time, recent_messages)
+        
         else:
-            logger.warning(f"Frontend query failed: {db_result.error_message}")
-
-        return QueryResponse(**response_data)
-
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-
+            # Default to conversational for unclear intents
+            return await handle_conversational_query(request, intent_result, rag, chat_manager, start_time, recent_messages)
+            
     except Exception as e:
-        logger.error(f"Unexpected error processing frontend query: {str(e)}")
+        logger.error(f"Error processing query: {str(e)}")
         total_execution_time = time.time() - start_time
-
+        
         return QueryResponse(
             success=False,
             data=[],
@@ -584,62 +349,183 @@ async def process_query(
             confidence_score=0.0,
             execution_time=total_execution_time,
             reasoning="Query processing failed due to internal error",
-            error_message=f"Internal server error: {str(e)}",
-            type="text",
-            summary="Sorry, I encountered an issue processing your query."
+            error_message=f"Internal server error: {str(e)}"
         )
 
-@app.get("/api/v1/schema", response_model=Dict[str, Any])
-async def get_database_schema(
-    db: FloatChatDBManager = Depends(get_db_manager)
-):
-    """
-    Get database schema information for the FloatChat tables.
-    """
-    try:
-        table_info = db.get_table_info(['floats', 'cycles', 'profiles'])
+async def handle_conversational_query(request: QueryRequest, intent_result: IntentResult, rag: FloatChatRAGCore, chat_manager: ChatHistoryManager, start_time: float, recent_messages: List[Dict[str, Any]]):
+    """Handle simple conversational queries using the RAG core"""
+    
+    # Format conversation context for the LLM
+    conversation_context = None
+    if recent_messages:
+        try:
+            conversation_context_lines = []
+            for msg in recent_messages:
+                if msg['role'] == 'user':
+                    conversation_context_lines.append(f"USER: {msg['content']}")
+                elif msg['role'] == 'assistant':
+                    assistant_msg = f"ASSISTANT: {msg['content']}"
+                    if msg.get('full_response') and msg['full_response'].get('sql_query'):
+                        assistant_msg += f"\nSQL GENERATED: {msg['full_response']['sql_query']}"
+                    conversation_context_lines.append(assistant_msg)
+            
+            conversation_context = "\n".join(conversation_context_lines)
+            logger.info(f"Using enhanced conversation context with {len(recent_messages)} messages")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format conversation context: {str(e)}")
+    
+    # Generate a conversational response using the RAG core with context
+    query_for_embedding = request.query
+    if recent_messages:
+        user_messages = [msg['content'] for msg in recent_messages if msg['role'] == 'user']
+        if user_messages:
+            query_for_embedding = user_messages[-1] + " " + request.query
 
-        if not table_info:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No schema information found"
-            )
+    rag_result: QueryResult = rag.process_query(query_for_embedding, conversation_context)
+    
+    total_execution_time = time.time() - start_time
+    
+    response = QueryResponse(
+        success=True,
+        data=[{"message": rag_result.reasoning, "type": "conversational"}],
+        sql_query="",
+        row_count=0,
+        confidence_score=intent_result.confidence,
+        execution_time=total_execution_time,
+        reasoning=f"Conversational response - {intent_result.reasoning}",
+        response_type="conversational"
+    )
 
-        return {
-            "schema": table_info,
-            "description": "FloatChat database schema for ARGO float data",
-            "tables": list(table_info.keys())
-        }
+    if request.session_id:
+        chat_manager.add_message(request.session_id, "user", request.query)
+        chat_manager.add_message(
+            request.session_id,
+            "assistant",
+            rag_result.reasoning,
+            full_response=response.dict()
+        )
+        chat_manager.cleanup_old_messages(request.session_id)
+        
+    return response
 
-    except Exception as e:
-        logger.error(f"Error retrieving schema: {str(e)}")
+async def handle_help_query(request: QueryRequest, chat_manager: ChatHistoryManager, start_time: float):
+    """Handle help and capability queries"""
+    
+    help_content = {
+        "capabilities": [
+            " Query oceanographic data from ARGO floats",
+            " Generate charts and visualizations", 
+            "️ Show data locations on maps",
+            " Analyze temperature and salinity trends",
+            " Search by location (e.g., 'near Mumbai')",
+            " Create data summaries and comparisons"
+        ],
+        "examples": [
+            "Show temperature data from float 5904471",
+            "Plot salinity trends over time",
+            "Map float locations near Japan",
+            "Compare temperature between two regions",
+            "What's the average depth of measurements?"
+        ]
+    }
+    
+    total_execution_time = time.time() - start_time
+    
+    response = QueryResponse(
+        success=True,
+        data=[help_content],
+        sql_query="",
+        row_count=0,
+        confidence_score=0.9,
+        execution_time=total_execution_time,
+        reasoning="System help and capabilities",
+        response_type="help"
+    )
+
+    if request.session_id:
+        chat_manager.add_message(request.session_id, "user", request.query)
+        chat_manager.add_message(
+            request.session_id,
+            "assistant",
+            "Here is some help information.",
+            full_response=response.dict()
+        )
+        chat_manager.cleanup_old_messages(request.session_id)
+
+    return response
+
+async def handle_data_query(request: QueryRequest, intent_result: IntentResult, rag: FloatChatRAGCore, db: FloatChatDBManager, chat_manager: ChatHistoryManager, start_time: float, recent_messages: List[Dict[str, Any]]):
+    """Handle queries that require data processing - your existing logic"""
+    
+    # Format conversation context for the LLM
+    conversation_context = None
+    if recent_messages:
+        try:
+            conversation_context_lines = []
+            for msg in recent_messages:
+                if msg['role'] == 'user':
+                    conversation_context_lines.append(f"USER: {msg['content']}")
+                elif msg['role'] == 'assistant':
+                    assistant_msg = f"ASSISTANT: {msg['content']}"
+                    if msg.get('full_response') and msg['full_response'].get('sql_query'):
+                        assistant_msg += f"\nSQL GENERATED: {msg['full_response']['sql_query']}"
+                    conversation_context_lines.append(assistant_msg)
+            
+            conversation_context = "\n".join(conversation_context_lines)
+            logger.info(f"Using enhanced conversation context with {len(recent_messages)} messages")
+            
+        except Exception as e:
+            logger.warning(f"Failed to format conversation context: {str(e)}")
+    
+    # Your existing RAG + SQL logic here with conversation context
+    query_for_embedding = request.query
+    if recent_messages:
+        user_messages = [msg['content'] for msg in recent_messages if msg['role'] == 'user']
+        if user_messages:
+            query_for_embedding = user_messages[-1] + " " + request.query
+
+    rag_result: QueryResult = rag.process_query(query_for_embedding, conversation_context)
+    
+    if not rag_result.sql_query:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve database schema: {str(e)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to generate SQL query from natural language input"
         )
+    
+    db_result: QueryExecutionResult = db.execute_query(rag_result.sql_query)
+    
+    # Add response type to determine frontend behavior
+    response_type = intent_result.response_type.value
+    visualization_type = intent_result.visualization_type
+    
+    limited_data = db_result.data[:request.max_results] if db_result.data else []
+    total_execution_time = time.time() - start_time
+    
+    response = QueryResponse(
+        success=db_result.success,
+        data=limited_data,
+        sql_query=rag_result.sql_query,
+        row_count=len(limited_data),
+        confidence_score=rag_result.confidence_score,
+        execution_time=total_execution_time,
+        reasoning=rag_result.reasoning,
+        response_type=response_type,
+        visualization_type=visualization_type,
+        error_message=db_result.error_message if not db_result.success else None
+    )
 
-@app.get("/api/v1/stats", response_model=Dict[str, Any])
-async def get_database_stats(
-    db: FloatChatDBManager = Depends(get_db_manager)
-):
-    """
-    Get database statistics and usage information.
-    """
-    try:
-        stats = db.get_database_stats()
-
-        return {
-            "stats": stats,
-            "timestamp": datetime.now().isoformat(),
-            "description": "FloatChat database statistics"
-        }
-
-    except Exception as e:
-        logger.error(f"Error retrieving stats: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve database statistics: {str(e)}"
+    if request.session_id:
+        chat_manager.add_message(request.session_id, "user", request.query)
+        chat_manager.add_message(
+            request.session_id,
+            "assistant",
+            rag_result.reasoning,
+            full_response=response.dict()
         )
+        chat_manager.cleanup_old_messages(request.session_id)
+
+    return response
 
 @app.get("/health")
 async def health_check():
@@ -665,7 +551,7 @@ def main():
     """
     # Configuration
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "8001")) # Changed port to 8001 to avoid conflict with frontend
     log_level = os.getenv("LOG_LEVEL", "info")
     workers = int(os.getenv("WORKERS", "1"))
 
@@ -678,7 +564,7 @@ def main():
         port=port,
         log_level=log_level,
         workers=workers,
-        reload=False,  # Set to True for development
+        reload=True,
         access_log=True
     )
 

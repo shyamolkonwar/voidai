@@ -1,0 +1,113 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import './scrollbar.css';
+
+/* Base dark theme */
+:root {
+  --bg: #040406;
+  --glass: rgba(255,255,255,0.04);
+  --glass-2: rgba(255,255,255,0.02);
+  --accent-1: rgba(47,107,243,0.14);
+  --accent-2: rgba(139,92,246,0.08);
+}
+
+/* page background */
+html, body, #__next {
+  height: 100%;
+  background: var(--bg);
+  color: #e6eef8;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* noise overlay via SVG data URI (subtle) */
+.hero-noise {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='800'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect filter='url(%23n)' width='100%' height='100%' opacity='0.02' fill='white'/></svg>");
+  background-repeat: repeat;
+  mix-blend-mode: overlay;
+}
+
+/* glass component helper class */
+.glass-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.06);
+  backdrop-filter: blur(14px) saturate(120%);
+}
+
+/* liquid glass variant: stronger refraction look */
+.liquid-glass {
+  background: radial-gradient(120% 160% at 20% 0%, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 30%, rgba(255,255,255,0.02) 60%),
+              linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 24px 60px rgba(2,6,23,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
+/* liquid-ish rounded */
+.liquid-radius {
+  border-radius: 28px;
+}
+
+/* subtle outline ring like Grok */
+.outline-1 {
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.03) inset;
+}
+
+/* hero big text */
+.h-hero {
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  text-transform: none;
+  line-height: 0.9;
+}
+
+/* small utility to create a faint gradient glow behind the hero text */
+.hero-glow {
+  opacity: 1;
+  filter: blur(24px);
+}
+
+/* remove iframe outline */
+.spline-iframe { outline: none; border: none; display: block; }
+
+/* hero search input text color */
+.search-input::placeholder { color: rgba(255,255,255,0.55); }
+
+/* small arrow button */
+.arrow-btn {
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.06);
+  width: 48px; height: 48px;
+  display:flex;align-items:center;justify-content:center;border-radius:9999px;
+
+}@media (max-width: 768px) {
+  .glass-card {
+    padding: 18px;
+    border-radius: 22px;
+  }
+  .h-hero {
+    font-size: 56px !important;
+    line-height: 1;
+  }
+}
+
+/* mobile tweaks */
+@media (max-width: 640px) {
+  .h-hero { font-size: 44px !important; }
+}
+.spline-iframe {
+  background: transparent !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0 !important;
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 0 !important;
+}
+.hero-ancestor-bg-fix {
+  background: transparent !important;
+  background-image: none !important;
+}

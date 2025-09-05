@@ -1,25 +1,23 @@
-import './globals.css';
-import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import "../styles/globals.css";
+import { ReactNode } from "react";
+import NavConditional from "../components/NavConditional";
+import LenisProvider from "../components/LenisProvider";
 
-const inter = Inter({ subsets: ['latin'] });
-
-export const metadata: Metadata = {
-  title: 'VOID - Ocean Data Assistant',
-  description: 'Conversational interface for ocean data visualization and analysis',
+export const metadata = {
+  title: "Void",
+  description: "Grok style landing with Spline background, lenis, glass UI"
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <div className="h-screen overflow-hidden">
-          {children}
-        </div>
+      <body className="min-h-screen bg-black text-white antialiased">
+        <LenisProvider>
+          <div className="relative min-h-screen overflow-x-hidden">
+            <NavConditional />
+            <main className="pt-24">{children}</main>
+          </div>
+        </LenisProvider>
       </body>
     </html>
   );

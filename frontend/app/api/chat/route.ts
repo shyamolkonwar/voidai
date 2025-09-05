@@ -1,61 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
+import { QueryRequest, QueryResponse, ApiError } from '../../../types/api';
+
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 export async function POST(request: NextRequest) {
   try {
-    const { query, sessionId } = await request.json();
+    const body: QueryRequest = await request.json();
     
-    // Forward the request to the backend
-    const backendUrl = 'http://127.0.0.1:8001/query';
-    const backendResponse = await fetch(backendUrl, {
+    // Validate request
+    if (!body.query || body.query.trim().length === 0) {
+      return NextResponse.json(
+        { error: 'Validation Error', message: 'Query is required', statusCode: 400 },
+        { status: 400 }
+      );
+    }
+
+    // Forward request to backend
+    const response = await fetch(`${BACKEND_URL}/api/v1/query`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        query,
-        session_id: sessionId,
-      }),
+      body: JSON.stringify(body),
     });
 
-    if (!backendResponse.ok) {
-      throw new Error(`Backend error: ${backendResponse.status}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return NextResponse.json(
+        { 
+          error: 'Backend Error', 
+          message: errorData.detail || 'Failed to process query', 
+          statusCode: response.status 
+        },
+        { status: response.status }
+      );
     }
 
-    const responseData = await backendResponse.json();
-    
-    // Create assistant message from the response with full response data
-    const assistantMessage = {
-      id: `assistant-${uuidv4()}`,
-      role: 'assistant',
-      content: responseData.summary || 'No response available',
-      timestamp: new Date(),
-      response: {
-        type: responseData.type || 'text',
-        data: responseData.data || [],
-        summary: responseData.summary || responseData.reasoning || 'No summary available',
-        // Include additional response metadata for smart context awareness
-        sql_query: responseData.sql_query,
-        row_count: responseData.row_count,
-        confidence_score: responseData.confidence_score,
-        execution_time: responseData.execution_time,
-        reasoning: responseData.reasoning,
-        success: responseData.success,
-        // Store the complete response data for future context retrieval
-        full_response: responseData
-      },
-    };
+    const data: QueryResponse = await response.json();
+    return NextResponse.json(data);
 
-    // Return the messages array with the new assistant message
-    return NextResponse.json({
-      messages: [assistantMessage],
-      sessionId
-    });
   } catch (error) {
-    console.error('API route error:', error);
+    console.error('Error in chat API:', error);
     return NextResponse.json(
-      { error: 'Failed to process chat request' },
+      { error: 'Internal Server Error', message: 'Failed to process request', statusCode: 500 },
       { status: 500 }
     );
   }
+}
+
+export async function GET() {
+  return NextResponse.json(
+    { error: 'Method Not Allowed', message: 'Use POST method for chat queries', statusCode: 405 },
+    { status: 405 }
+  );
 }

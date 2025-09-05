@@ -1,0 +1,72 @@
+/* Custom Scrollbar Styles for Black Minimalistic Theme */
+
+/* Chat Dashboard Scrollbar */
+.chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.chat-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Sidebar Scrollbar */
+.sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.08) rgba(0, 0, 0, 0.2);
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Hide scrollbar on mobile/touch devices for cleaner look */
+@media (hover: none) and (pointer: coarse) {
+  .chat-scrollbar::-webkit-scrollbar,
+  .sidebar-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .chat-scrollbar,
+  .sidebar-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+}
