@@ -75,6 +75,28 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+# Next.js build output
+.next/
+out/
+
+# Next.js production
+build/
+dist/
+
+# Next.js cache
+.next/cache/
+
+# Vercel
+.vercel
+
+# Turbopack
+.turbo
+
+# PWA files
+public/sw.js
+public/workbox-*.js
+public/worker-*.js
+
 # Logs
 logs
 *.log
