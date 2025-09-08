@@ -6,18 +6,11 @@ import { motion, HTMLMotionProps } from "framer-motion";
 
 const MotionDiv = motion.div as React.FC<HTMLMotionProps<"div"> & React.HTMLAttributes<HTMLDivElement>>;
 
-const MacScreenMockup = ({ title }: { title: string }) => {
+const ContentPreview = ({ title }: { title: string }) => {
   switch (title) {
     case "ASK. DON'T CODE":
       return (
         <div className="w-full h-32 bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
-          <div className="flex items-center px-3 py-1 bg-gray-800 border-b border-gray-700">
-            <div className="flex space-x-1.5">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            </div>
-          </div>
           <div className="p-3">
             <div className="bg-blue-900/30 p-2 rounded text-xs text-blue-200 font-mono">
               <div className="text-green-400">$</div>
@@ -32,13 +25,6 @@ const MacScreenMockup = ({ title }: { title: string }) => {
     case "SEE. DON'T GUESS":
       return (
         <div className="w-full h-32 bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
-          <div className="flex items-center px-3 py-1 bg-gray-800 border-b border-gray-700">
-            <div className="flex space-x-1.5">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            </div>
-          </div>
           <div className="p-3 flex items-center justify-center h-full">
             <div className="flex items-center space-x-2 text-blue-300">
               <div className="w-4 h-4 border-2 border-blue-400 rounded"></div>
@@ -52,13 +38,6 @@ const MacScreenMockup = ({ title }: { title: string }) => {
     case "SHARE. DON'T HOARD":
       return (
         <div className="w-full h-32 bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
-          <div className="flex items-center px-3 py-1 bg-gray-800 border-b border-gray-700">
-            <div className="flex space-x-1.5">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            </div>
-          </div>
           <div className="p-3">
             <div className="flex items-center space-x-2 text-sm">
               <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white">R</div>
@@ -83,13 +62,6 @@ const MacScreenMockup = ({ title }: { title: string }) => {
     case "SPEAK ENGLISH, NOT CODE":
       return (
         <div className="w-full h-32 bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
-          <div className="flex items-center px-3 py-1 bg-gray-800 border-b border-gray-700">
-            <div className="flex space-x-1.5">
-              <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-            </div>
-          </div>
           <div className="p-3">
             <div className="bg-green-900/30 p-2 rounded text-xs text-green-200 font-mono">
               <div className="text-green-400">❓</div>
@@ -122,9 +94,11 @@ export default function GlassCard({ title, desc }: { title: string; desc?: strin
       transition={{ duration: 0.2 }}
       className="glass-card p-6 liquid-radius outline-1 shadow-figma-soft group hover:border-slate-400/20 transition-all duration-300 cursor-pointer relative overflow-hidden"
     >
-      {/* Mac Screen Mockup */}
+      {/* Content Preview - Hide for section 3 cards */}
       <div className="mb-4">
-        <MacScreenMockup title={title} />
+        {title !== "SPEAK ENGLISH, NOT CODE" && title !== "SEE. DON'T GUESS" && title !== "SHARE. DON'T HOARD" && (
+          <ContentPreview title={title} />
+        )}
       </div>
       
       <h4 className="text-xl font-bold mb-3 text-white group-hover:text-blue-300 transition-colors duration-300">

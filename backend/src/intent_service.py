@@ -146,6 +146,11 @@ class IntentDetectionService:
             max_score = intent_scores[primary_intent]['score']
 
             confidence = min(0.9, 0.3 + (max_score * 0.2))
+
+        # If the intent is comparison, but there are also visualization keywords, promote to visualization
+        if primary_intent == ResponseType.COMPARISON and ResponseType.VISUALIZATION in intent_scores:
+            primary_intent = ResponseType.VISUALIZATION
+            confidence += 0.1 # Boost confidence slightly
         
         # Determine if data is required
         requires_data = any(re.search(p, query_lower) for p in self.data_requiring_patterns)
@@ -158,7 +163,11 @@ class IntentDetectionService:
                     visualization_type = viz_type
                     break
             if not visualization_type:
-                visualization_type = 'line'  # Default
+                # If it's a comparison, default to scatter, otherwise line
+                if ResponseType.COMPARISON in intent_scores:
+                    visualization_type = 'scatter'
+                else:
+                    visualization_type = 'line'
         elif primary_intent == ResponseType.MAP:
             visualization_type = 'map'
         

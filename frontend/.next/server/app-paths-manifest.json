@@ -1,6 +1,3 @@
 {
-  "/api/chat/sessions/route": "app/api/chat/sessions/route.js",
-  "/api/chat/sessions/[sessionId]/history/route": "app/api/chat/sessions/[sessionId]/history/route.js",
-  "/api/chat/route": "app/api/chat/route.js",
   "/chat/page": "app/chat/page.js"
 }

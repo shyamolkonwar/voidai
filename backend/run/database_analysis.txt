@@ -1,0 +1,6 @@
+Local Database Analysis - 2025-09-07 12:21:17.268425
+==================================================
+chat_history: 20 rows
+cycles: 28815 rows
+floats: 249 rows
+profiles: 3946370 rows

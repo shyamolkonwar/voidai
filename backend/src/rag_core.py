@@ -1,4 +1,3 @@
-
 """
 FloatChat RAG Core
 ==================
@@ -19,7 +18,7 @@ import chromadb
 from chromadb.config import Settings
 import requests
 from dataclasses import dataclass
-from geocoding_service import GeographicService
+from .geocoding_service import GeographicService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -41,16 +40,18 @@ class FloatChatRAGCore:
     """
 
     def __init__(self, chroma_host: str = "localhost", chroma_port: int = 8000, 
-                 llm_endpoint: str = "http://localhost:11434/api/generate"):
+                 llm_client: Any = None, llm_provider: str = "deepseek"):
         """
         Initialize the RAG core system.
 
         Args:
             chroma_host: ChromaDB server host
             chroma_port: ChromaDB server port
-            llm_endpoint: LLM API endpoint (Ollama format)
+            llm_client: The initialized LLM client
+            llm_provider: The name of the LLM provider
         """
-        self.llm_endpoint = llm_endpoint
+        self.llm_client = llm_client
+        self.llm_provider = llm_provider
 
         # Initialize embedding model
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -284,66 +285,80 @@ SQL:"""
 
         return prompt
 
-    def invoke_llm(self, prompt: str, model: str = "deepseek-chat") -> str:
-        """Send prompt to DeepSeek LLM and return the generated SQL.
+    async def _get_llm_response(self, messages: List[Dict[str, str]], **kwargs) -> str:
+        """Gets a response from the configured LLM."""
+        if self.llm_provider == "groq":
+            completion = self.llm_client.chat.completions.create(
+                model=os.getenv("GROQ_MODEL", "llama3-8b-8192"),
+                messages=messages,
+                temperature=kwargs.get("temperature", 0.7),
+                max_tokens=kwargs.get("max_tokens", 8192),
+                top_p=kwargs.get("top_p", 1),
+                stream=False,
+            )
+            return completion.choices[0].message.content
+        elif self.llm_provider == "openrouter":
+            extra_headers = {}
+            if os.getenv("OPENROUTER_SITE_URL"):
+                extra_headers["HTTP-Referer"] = os.getenv("OPENROUTER_SITE_URL")
+            if os.getenv("OPENROUTER_SITE_NAME"):
+                extra_headers["X-Title"] = os.getenv("OPENROUTER_SITE_NAME")
 
-        Args:
-            prompt: Complete engineered prompt
-            model: DeepSeek model name (default: deepseek-chat)
-
-        Returns:
-            Generated SQL query string
-        """
-        try:
-            # Get API key from environment
+            completion = self.llm_client.chat.completions.create(
+                model=os.getenv("OPENROUTER_MODEL", "google/gemini-flash-1.5"),
+                messages=messages,
+                extra_headers=extra_headers,
+            )
+            return completion.choices[0].message.content
+        elif self.llm_provider == "mistral":
+            completion = self.llm_client.chat.complete(
+                model=os.getenv("MISTRAL_MODEL", "mistral-small-latest"),
+                messages=messages,
+            )
+            return completion.choices[0].message.content
+        elif self.llm_provider == "deepseek":
             api_key = os.getenv("DEEPSEEK_API_KEY")
             if not api_key:
-                raise Exception("DEEPSEEK_API_KEY environment variable not set")
-
+                raise ValueError("DEEPSEEK_API_KEY is not set")
+            
             payload = {
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a specialized SQL generator for oceanographic ARGO float data. Your task is to convert natural language queries into precise SQL SELECT statements."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                "temperature": 0.1,  # Low temperature for consistent SQL generation
-                "max_tokens": 512,
-                "top_p": 0.9
+                "model": os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+                "messages": messages,
+                "temperature": kwargs.get("temperature", 0.1),
+                "max_tokens": kwargs.get("max_tokens", 512),
+                "top_p": kwargs.get("top_p", 0.9)
             }
-
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}"
             }
+            llm_endpoint = "https://api.deepseek.com/v1/chat/completions"
+            
+            response = requests.post(llm_endpoint, json=payload, headers=headers, timeout=30)
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']['content'].strip()
+        else:
+            raise ValueError(f"Unsupported LLM provider: {self.llm_provider}")
 
-            response = requests.post(
-                self.llm_endpoint,
-                json=payload,
-                headers=headers,
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                result = response.json()
-                sql_query = result['choices'][0]['message']['content'].strip()
-
-                # Clean up the SQL query
-                sql_query = self._clean_sql_output(sql_query)
-
-                logger.info(f"DeepSeek LLM generated SQL query: {sql_query[:100]}...")
-                return sql_query
-            else:
-                logger.error(f"DeepSeek API error: {response.status_code} - {response.text}")
-                raise Exception(f"DeepSeek API error: {response.status_code}")
-
+    async def invoke_llm(self, prompt: str) -> str:
+        """Send prompt to the configured LLM and return the generated SQL."""
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a specialized SQL generator for oceanographic ARGO float data. Your task is to convert natural language queries into precise SQL SELECT statements."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+            sql_query = await self._get_llm_response(messages, temperature=0.1, max_tokens=512, top_p=0.9)
+            sql_query = self._clean_sql_output(sql_query)
+            logger.info(f"LLM generated SQL query: {sql_query[:100]}...")
+            return sql_query
         except Exception as e:
-            logger.error(f"Error invoking DeepSeek LLM: {str(e)}")
+            logger.error(f"Error invoking LLM: {str(e)}")
             raise
 
     def _clean_sql_output(self, sql_output: str) -> str:
@@ -403,7 +418,7 @@ SQL:"""
 
         return min(score, 1.0)
 
-    def process_query(self, user_query: str, conversation_context: Optional[str] = None) -> QueryResult:
+    async def process_query(self, user_query: str, conversation_context: Optional[str] = None) -> QueryResult:
         """
         Complete RAG pipeline: embed query, retrieve context, generate SQL.
 
@@ -428,7 +443,7 @@ SQL:"""
             prompt = self.engineer_prompt(user_query, context_docs, conversation_context)
 
             # Step 4: Invoke LLM
-            sql_query = self.invoke_llm(prompt)
+            sql_query = await self.invoke_llm(prompt)
 
             # Step 5: Calculate confidence score
             confidence_score = self.calculate_confidence_score(context_docs, sql_query)
@@ -454,29 +469,8 @@ def main():
     """
     Example usage of the RAG core system.
     """
-    # Initialize RAG core
-    rag_core = FloatChatRAGCore()
-
-    # Example queries
-    test_queries = [
-        "Show me temperature data from float 5904471",
-        "What's the average salinity in the Pacific Ocean?",
-        "Find the deepest measurements from all floats"
-    ]
-
-    for query in test_queries:
-        print(f"\n{'='*60}")
-        print(f"Query: {query}")
-        print('='*60)
-
-        try:
-            result = rag_core.process_query(query)
-            print(f"Generated SQL: {result.sql_query}")
-            print(f"Confidence Score: {result.confidence_score:.3f}")
-            print(f"Processing Time: {result.processing_time:.2f}s")
-            print(f"Context Documents: {len(result.retrieved_context)}")
-        except Exception as e:
-            print(f"Error: {str(e)}")
+    # This function is for example purposes and will not be used in the main application
+    pass
 
 if __name__ == "__main__":
     main()

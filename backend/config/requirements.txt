@@ -35,3 +35,6 @@ httpx
 
 # Logging and monitoring
 structlog
+groq
+openai
+mistralai

@@ -1,4 +1,3 @@
-
 """
 FloatChat FastAPI Application
 =============================
@@ -16,6 +15,11 @@ from dotenv import load_dotenv
 import time
 from datetime import datetime
 from contextlib import asynccontextmanager
+import requests
+from groq import Groq
+from openai import OpenAI
+from mistralai import Mistral
+
 
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,11 +42,24 @@ logger = logging.getLogger(__name__)
 # Load environment variables first
 load_dotenv()
 
+# --- LLM Configuration ---
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-8b-8192")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "google/gemini-flash-1.5")
+OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL")
+OPENROUTER_SITE_NAME = os.getenv("OPENROUTER_SITE_NAME")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+
+
 # Configuration from environment variables
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://username:password@localhost:5432/floatchat")
 CHROMA_HOST = os.getenv("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8000"))
-LLM_ENDPOINT = os.getenv("LLM_ENDPOINT", "http://localhost:11434/api/generate")
 MAX_QUERY_TIME = int(os.getenv("MAX_QUERY_TIME", "30"))
 
 # Global instances (will be initialized in lifespan)
@@ -50,6 +67,41 @@ rag_core: Optional[FloatChatRAGCore] = None
 db_manager: Optional[FloatChatDBManager] = None
 chat_history_manager: Optional[ChatHistoryManager] = None
 intent_service: Optional[IntentDetectionService] = None
+llm_client: Any = None
+
+def get_llm_client():
+    """Initializes and returns the appropriate LLM client based on the environment configuration."""
+    global llm_client
+    if llm_client:
+        return llm_client
+
+    logger.info(f"Initializing LLM client for provider: {LLM_PROVIDER}")
+
+    if LLM_PROVIDER == "groq":
+        if not GROQ_API_KEY:
+            raise ValueError("GROQ_API_KEY is not set")
+        llm_client = Groq(api_key=GROQ_API_KEY)
+    elif LLM_PROVIDER == "openrouter":
+        if not OPENROUTER_API_KEY:
+            raise ValueError("OPENROUTER_API_KEY is not set")
+        llm_client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_API_KEY,
+        )
+    elif LLM_PROVIDER == "mistral":
+        if not MISTRAL_API_KEY:
+            raise ValueError("MISTRAL_API_KEY is not set")
+        llm_client = Mistral(api_key=MISTRAL_API_KEY)
+    elif LLM_PROVIDER == "deepseek":
+        # DeepSeek uses a requests-based approach, so we don't initialize a client here.
+        # The API key will be checked in the handler.
+        llm_client = "deepseek"
+    else:
+        raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}")
+
+    logger.info(f"LLM client for {LLM_PROVIDER} initialized successfully.")
+    return llm_client
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,11 +109,14 @@ async def lifespan(app: FastAPI):
     Application lifespan manager for startup and shutdown events.
     """
     # Startup
-    global rag_core, db_manager, chat_history_manager, intent_service
+    global rag_core, db_manager, chat_history_manager, intent_service, llm_client
 
     logger.info("Starting FloatChat API server...")
 
     try:
+        # Initialize LLM client
+        llm_client = get_llm_client()
+
         # Initialize database manager
         logger.info("Initializing database manager...")
         db_manager = FloatChatDBManager(DATABASE_URL)
@@ -81,7 +136,8 @@ async def lifespan(app: FastAPI):
         rag_core = FloatChatRAGCore(
             chroma_host=CHROMA_HOST,
             chroma_port=CHROMA_PORT,
-            llm_endpoint=LLM_ENDPOINT
+            llm_client=llm_client, # Pass the client
+            llm_provider=LLM_PROVIDER
         )
         logger.info("RAG core initialized")
 
@@ -352,48 +408,119 @@ async def process_query(
             error_message=f"Internal server error: {str(e)}"
         )
 
+
+async def get_llm_response(client: Any, provider: str, messages: List[Dict[str, str]], **kwargs) -> str:
+    """Gets a response from the configured LLM."""
+    if provider == "groq":
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=messages,
+            temperature=kwargs.get("temperature", 0.7),
+            max_tokens=kwargs.get("max_tokens", 8192),
+            top_p=kwargs.get("top_p", 1),
+            stream=False,
+        )
+        return completion.choices[0].message.content
+    elif provider == "openrouter":
+        extra_headers = {}
+        if OPENROUTER_SITE_URL:
+            extra_headers["HTTP-Referer"] = OPENROUTER_SITE_URL
+        if OPENROUTER_SITE_NAME:
+            extra_headers["X-Title"] = OPENROUTER_SITE_NAME
+
+        completion = client.chat.completions.create(
+            model=OPENROUTER_MODEL,
+            messages=messages,
+            extra_headers=extra_headers,
+        )
+        return completion.choices[0].message.content
+    elif provider == "mistral":
+        completion = client.chat.completions.create(
+            model=MISTRAL_MODEL,
+            messages=messages,
+        )
+        return completion.choices[0].message.content
+    elif provider == "deepseek":
+        if not DEEPSEEK_API_KEY:
+            raise ValueError("DEEPSEEK_API_KEY is not set")
+        
+        payload = {
+            "model": DEEPSEEK_MODEL,
+            "messages": messages,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 300),
+            "top_p": kwargs.get("top_p", 0.9)
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+        }
+        llm_endpoint = "https://api.deepseek.com/v1/chat/completions"
+        
+        response = requests.post(llm_endpoint, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        return response.json()['choices'][0]['message']['content'].strip()
+    else:
+        raise ValueError(f"Unsupported LLM provider: {provider}")
+
+
 async def handle_conversational_query(request: QueryRequest, intent_result: IntentResult, rag: FloatChatRAGCore, chat_manager: ChatHistoryManager, start_time: float, recent_messages: List[Dict[str, Any]]):
-    """Handle simple conversational queries using the RAG core"""
+    """Handle conversational queries using the configured LLM"""
     
-    # Format conversation context for the LLM
-    conversation_context = None
+    conversation_context = ""
     if recent_messages:
         try:
             conversation_context_lines = []
-            for msg in recent_messages:
+            for msg in recent_messages[-5:]: 
                 if msg['role'] == 'user':
-                    conversation_context_lines.append(f"USER: {msg['content']}")
+                    conversation_context_lines.append(f"User: {msg['content']}")
                 elif msg['role'] == 'assistant':
-                    assistant_msg = f"ASSISTANT: {msg['content']}"
-                    if msg.get('full_response') and msg['full_response'].get('sql_query'):
-                        assistant_msg += f"\nSQL GENERATED: {msg['full_response']['sql_query']}"
-                    conversation_context_lines.append(assistant_msg)
-            
+                    conversation_context_lines.append(f"Assistant: {msg['content']}")
             conversation_context = "\n".join(conversation_context_lines)
-            logger.info(f"Using enhanced conversation context with {len(recent_messages)} messages")
-            
         except Exception as e:
             logger.warning(f"Failed to format conversation context: {str(e)}")
     
-    # Generate a conversational response using the RAG core with context
-    query_for_embedding = request.query
-    if recent_messages:
-        user_messages = [msg['content'] for msg in recent_messages if msg['role'] == 'user']
-        if user_messages:
-            query_for_embedding = user_messages[-1] + " " + request.query
+    system_prompt = """You are a friendly and knowledgeable oceanographic data assistant. You help users explore ARGO float data and ocean science topics through natural conversation. 
 
-    rag_result: QueryResult = rag.process_query(query_for_embedding, conversation_context)
-    
+Key behaviors:
+1. Be conversational, warm, and engaging
+2. Provide helpful information about ocean data and ARGO floats
+3. Always encourage users to explore more by asking relevant follow-up questions
+4. Keep responses concise but informative
+5. If users ask about data capabilities, guide them toward specific queries
+6. Use phrases like "Would you like to...", "I can help you with...", "Let me know if you'd like to explore..."
+
+Remember: You don't need to fetch data from databases for conversational queries - just provide helpful, engaging responses that encourage further exploration."""
+
+    user_prompt = f"""{conversation_context}
+
+User: {request.query}
+
+Please provide a helpful, conversational response that encourages the user to explore more ocean data topics."""
+
+    try:
+        client = get_llm_client()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        conversational_response = await get_llm_response(client, LLM_PROVIDER, messages)
+        logger.info(f"LLM generated conversational response: {conversational_response[:100]}...")
+
+    except Exception as e:
+        logger.error(f"Error invoking LLM for conversational query: {str(e)}")
+        conversational_response = "I'd love to help you explore ocean data! What would you like to discover about our ARGO float measurements?"
+
     total_execution_time = time.time() - start_time
     
     response = QueryResponse(
         success=True,
-        data=[{"message": rag_result.reasoning, "type": "conversational"}],
+        data=[{"message": conversational_response, "type": "conversational"}],
         sql_query="",
         row_count=0,
         confidence_score=intent_result.confidence,
         execution_time=total_execution_time,
-        reasoning=f"Conversational response - {intent_result.reasoning}",
+        reasoning=f"Conversational response powered by {LLM_PROVIDER} - {intent_result.reasoning}",
         response_type="conversational"
     )
 
@@ -402,7 +529,7 @@ async def handle_conversational_query(request: QueryRequest, intent_result: Inte
         chat_manager.add_message(
             request.session_id,
             "assistant",
-            rag_result.reasoning,
+            conversational_response,
             full_response=response.dict()
         )
         chat_manager.cleanup_old_messages(request.session_id)
@@ -410,36 +537,44 @@ async def handle_conversational_query(request: QueryRequest, intent_result: Inte
     return response
 
 async def handle_help_query(request: QueryRequest, chat_manager: ChatHistoryManager, start_time: float):
-    """Handle help and capability queries"""
+    """Handle help and capability queries using the configured LLM"""
     
-    help_content = {
-        "capabilities": [
-            " Query oceanographic data from ARGO floats",
-            " Generate charts and visualizations", 
-            "️ Show data locations on maps",
-            " Analyze temperature and salinity trends",
-            " Search by location (e.g., 'near Mumbai')",
-            " Create data summaries and comparisons"
-        ],
-        "examples": [
-            "Show temperature data from float 5904471",
-            "Plot salinity trends over time",
-            "Map float locations near Japan",
-            "Compare temperature between two regions",
-            "What's the average depth of measurements?"
+    system_prompt = """You are a helpful oceanographic data assistant. When users ask for help or what you can do, provide a warm, conversational overview of your capabilities focused on ARGO float data exploration.
+
+Key points to cover:
+- Query oceanographic data from ARGO floats worldwide
+- Generate charts and visualizations of temperature, salinity, and other parameters
+- Show float locations and trajectories on interactive maps
+- Analyze trends over time and compare different regions
+- Search by geographic locations (e.g., "near Japan", "Indian Ocean")
+- Provide data summaries and statistical insights
+
+Keep responses conversational and end with an engaging question to encourage exploration."""
+
+    user_prompt = f"User: {request.query}\n\nPlease provide a helpful, conversational response about what I can help with regarding ARGO float data exploration."
+
+    try:
+        client = get_llm_client()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
         ]
-    }
-    
+        help_response = await get_llm_response(client, LLM_PROVIDER, messages)
+
+    except Exception as e:
+        logger.error(f"Error invoking LLM for help query: {str(e)}")
+        help_response = "I can help you explore ARGO float data including temperature, salinity, and location information. What would you like to discover about our ocean measurements?"
+
     total_execution_time = time.time() - start_time
     
     response = QueryResponse(
         success=True,
-        data=[help_content],
+        data=[{"message": help_response, "type": "help"}],
         sql_query="",
         row_count=0,
         confidence_score=0.9,
         execution_time=total_execution_time,
-        reasoning="System help and capabilities",
+        reasoning=f"Help response powered by {LLM_PROVIDER}",
         response_type="help"
     )
 
@@ -448,7 +583,7 @@ async def handle_help_query(request: QueryRequest, chat_manager: ChatHistoryMana
         chat_manager.add_message(
             request.session_id,
             "assistant",
-            "Here is some help information.",
+            help_response,
             full_response=response.dict()
         )
         chat_manager.cleanup_old_messages(request.session_id)
@@ -458,7 +593,6 @@ async def handle_help_query(request: QueryRequest, chat_manager: ChatHistoryMana
 async def handle_data_query(request: QueryRequest, intent_result: IntentResult, rag: FloatChatRAGCore, db: FloatChatDBManager, chat_manager: ChatHistoryManager, start_time: float, recent_messages: List[Dict[str, Any]]):
     """Handle queries that require data processing - your existing logic"""
     
-    # Format conversation context for the LLM
     conversation_context = None
     if recent_messages:
         try:
@@ -478,14 +612,13 @@ async def handle_data_query(request: QueryRequest, intent_result: IntentResult, 
         except Exception as e:
             logger.warning(f"Failed to format conversation context: {str(e)}")
     
-    # Your existing RAG + SQL logic here with conversation context
     query_for_embedding = request.query
     if recent_messages:
         user_messages = [msg['content'] for msg in recent_messages if msg['role'] == 'user']
         if user_messages:
             query_for_embedding = user_messages[-1] + " " + request.query
 
-    rag_result: QueryResult = rag.process_query(query_for_embedding, conversation_context)
+    rag_result: QueryResult = await rag.process_query(query_for_embedding, conversation_context)
     
     if not rag_result.sql_query:
         raise HTTPException(
@@ -495,7 +628,6 @@ async def handle_data_query(request: QueryRequest, intent_result: IntentResult, 
     
     db_result: QueryExecutionResult = db.execute_query(rag_result.sql_query)
     
-    # Add response type to determine frontend behavior
     response_type = intent_result.response_type.value
     visualization_type = intent_result.visualization_type
     

@@ -104,19 +104,19 @@ export default function Home() {
           transition={{ delay: 0.15 }}
           className="mt-16 text-center"
         >
-          <h2 className="text-3xl font-bold mb-4">THE OLD WAY IS BROKEN. THIS IS THE NEW STANDARD.</h2>
-          <p className="text-lg text-slate-300 leading-relaxed max-w-3xl mx-auto mb-12">
-            Stop waiting for scripts and begging for access. VOID gives you direct access to answers.
-          </p>
+          <h2 className="text-3xl font-bold mb-12">THE OLD WAY IS BROKEN. THIS IS THE NEW STANDARD.</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <GlassCard
               title="SPEAK ENGLISH, NOT CODE"
+              desc="Ask questions in plain English and get immediate answers. No coding required."
             />
             <GlassCard
               title="SEE. DON'T GUESS"
+              desc="Get instant visualizations and insights from your data without technical barriers."
             />
             <GlassCard
               title="SHARE. DON'T HOARD"
+              desc="Collaborate seamlessly with your team and share discoveries in real-time."
             />
           </div>
         </MotionDiv>

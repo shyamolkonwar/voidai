@@ -1,0 +1,16 @@
+
+Supabase Sync Report
+===================
+Start Time: 2025-09-07 12:22:02.276842
+End Time: 2025-09-07 12:22:35.491598
+Duration: 0:00:33.214756
+
+Summary:
+- Tables Processed: 0
+- Total Records: 0
+- Successful Syncs: 0
+- Failed Syncs: 6
+
+Details:
+- Success Rate: 0.0%
+- Average Records per Table: 0

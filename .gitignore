@@ -1,6 +1,10 @@
 # NetCDF data files
 backend/data/netcdf/
 
+# Large CSV data files
+backend/exported_data/
+backend/split_profiles/
+
 # Chroma database files
 backend/chroma_data/
 **/chroma_data/
@@ -25,8 +29,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
@@ -145,3 +147,4 @@ temp/
 # Logs
 *.log
 *.log
+
